@@ -1,18 +1,21 @@
 .PHONY: all clean
 
-CXX := g++
+CXX := clang++
 CXXFLAGS := -std=c++17 -g
-LDLIBS := -lpthread -I. -libstd=libc++
+LDLIBS := -lpthread -I. 
 
 all: cuckoo linear extendible
 
-cuckoo: index/cuckoo_hash.h bench/test.cpp
-	$(CXX) $(CXXFLAGS) -o bin/cuc bench/test.cpp $(LDLIBS)
+cuckoo: index/cuckoo_hash.h test/hashtable_test.cpp
+	$(CXX) $(CXXFLAGS) -o bin/cuc test/hashtable_test.cpp $(LDLIBS)
 
-linear: index/linear_probing.h bench/test.cpp
-	$(CXX) $(CXXFLAGS) -o bin/lin bench/test.cpp $(LDLIBS) -DLIN
+linear: index/linear_probing.h test/hashtable_test.cpp
+	$(CXX) $(CXXFLAGS) -o bin/lin test/hashtable_test.cpp $(LDLIBS) -DLIN
 
-extendible: index/extendible_hash.h bench/test.cpp
-	$(CXX) $(CXXFLAGS) -o bin/ext bench/test.cpp $(LDLIBS) -DEXT
+extendible: index/extendible_hash.h test/hashtable_test.cpp
+	$(CXX) $(CXXFLAGS) -o bin/ext test/hashtable_test.cpp $(LDLIBS) -DEXT
+
+key_gen: bench/key_generator.h test/key_test.cpp
+	$(CXX) $(CXXFLAGS) -o bin/key test/key_test.cpp $(LDLIBS)
 clean:
 	rm bench/*.o bin/*
