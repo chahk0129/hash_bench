@@ -18,8 +18,8 @@ class LinearProbingHash : public Hash <Key_t, Value_t> {
   const float kResizingFactor = 2;
   const float kResizingThreshold = 0.95;
   public:
-    LinearProbingHash(void): Hash{}, capacity{0}, dict{nullptr}{ }
-    LinearProbingHash(size_t _capacity): Hash{}, capacity{_capacity}, dict{new Pair<Key_t, Value_t>[capacity]} {
+    LinearProbingHash(void): capacity{0}, dict{nullptr}{ }
+    LinearProbingHash(size_t _capacity): capacity{_capacity}, dict{new Pair<Key_t, Value_t>[capacity]} {
 	locksize = 256;
 	nlocks = capacity / locksize + 1;
 	mutex = new shared_mutex[nlocks];
@@ -52,7 +52,7 @@ class LinearProbingHash : public Hash <Key_t, Value_t> {
 
   private:
     void resize(size_t);
-    size_t getLocation(size_t, size_t, Pair*);
+    size_t getLocation(size_t, size_t, Pair<Key_t, Value_t>*);
 
     size_t capacity;
     Pair<Key_t, Value_t>* dict;
@@ -164,7 +164,7 @@ RETRY:
 }
 
 template <typename Key_t, typename Value_t>
-size_t LinearProbingHash<Key_t, Value_t>::Get(size_t hash_value, size_t _capacity, Pair<Key_t, Value_t>* _dict){
+size_t LinearProbingHash<Key_t, Value_t>::getLocation(size_t hash_value, size_t _capacity, Pair<Key_t, Value_t>* _dict){
     size_t cur = hash_value;
     int i = 0;
     if constexpr(sizeof(Key_t) > 8){
@@ -203,14 +203,14 @@ void LinearProbingHash<Key_t, Value_t>::resize(size_t _capacity){
 	    if(memcmp(dict[i].key, INVALID<Key_t>, sizeof(Key_t)) != 0){
 		auto key_hash = h(dict[i].key, sizeof(Key_t)) % _capacity;
 		auto loc = getLocation(key_hash, _capacity, new_dict);
-		memcpy(&new_dict[loc], &dict[i], sizeof(Pair<Key_t, Value_t));
+		memcpy(&new_dict[loc], &dict[i], sizeof(Pair<Key_t, Value_t>));
 	    }
 	}
 	else{
 	    if(memcmp(&dict[i].key, &INVALID<Key_t>, sizeof(Key_t)) != 0){
 		auto key_hash = h(&dict[i].key, sizeof(Key_t)) % _capacity;
 		auto loc = getLocation(key_hash, _capacity, new_dict);
-		memcpy(&new_dict[loc], &dict[i], sizeof(Pair<Key_t, Value_t));
+		memcpy(&new_dict[loc], &dict[i], sizeof(Pair<Key_t, Value_t>));
 	    }
 	}
     }
@@ -219,11 +219,14 @@ void LinearProbingHash<Key_t, Value_t>::resize(size_t _capacity){
     old_dic = dict;
     capacity = _capacity;
     dict = new_dict;
-    //here
-
-
-	
-
-
+    auto tmp = old_dic;
+    old_cap = 0;
+    old_dic = nullptr;
+    for(int i=0; i<prev_nlocks; i++){
+	delete lock[i];
+    }
+    delete[] old_mutex;
+    delete[] tmp;
+}
 
 #endif  // LINEAR_HASH_H_
