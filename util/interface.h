@@ -6,7 +6,7 @@
 #include "util/pair.h"
 //#include "util/timer.h"
 
-template <typename Key_t, typename Value_t>
+template <typename Key_t>
 class Hash {
   public:
     Hash(void) = default;

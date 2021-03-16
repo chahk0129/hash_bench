@@ -16,8 +16,8 @@
 
 using namespace std;
 
-template <typename Key_t, typename Value_t>
-class CuckooHash : public Hash<Key_t, Value_t> {
+template <typename Key_t>
+class CuckooHash : public Hash<Key_t> {
   size_t _seed = 0xc70f6907UL;
   const size_t kCuckooThreshold = 16;
   const size_t kNumHash = 2;
@@ -26,11 +26,11 @@ class CuckooHash : public Hash<Key_t, Value_t> {
 
   public:
     CuckooHash(void): capacity{0}, table{nullptr} {
-	memset(&pushed, 0, sizeof(Pair<Key_t, Value_t>)*2);
+	memset(&pushed, 0, sizeof(Pair<Key_t>)*2);
     }
 
-    CuckooHash(size_t _capacity): capacity{_capacity}, table{new Pair<Key_t, Value_t>[capacity]} {
-	memset(&pushed, 0, sizeof(Pair<Key_t, Value_t>)*2);
+    CuckooHash(size_t _capacity): capacity{_capacity}, table{new Pair<Key_t>[capacity]} {
+	memset(&pushed, 0, sizeof(Pair<Key_t>)*2);
 	locksize = 256;
 	nlocks = capacity / locksize + 1;
 	mutex = new std::shared_mutex[nlocks];
@@ -65,18 +65,18 @@ class CuckooHash : public Hash<Key_t, Value_t> {
   private:
     bool insert4resize(Key_t&, Value_t);
     bool resize(void);
-    std::vector<std::pair<size_t, char*>> find_path(size_t);
+    std::vector<std::pair<size_t, Key_t>> find_path(size_t);
     bool validate_path(std::vector<size_t>&);
-    bool execute_path(std::vector<std::pair<size_t,char*>>&);
-    bool execute_path(std::vector<std::pair<size_t,char*>>&, Key_t&, Value_t);
+    bool execute_path(std::vector<std::pair<size_t,Key_t>>&);
+    bool execute_path(std::vector<std::pair<size_t,Key_t>>&, Key_t&, Value_t);
 
     size_t capacity;
-    Pair<Key_t, Value_t>* table;
-    Pair<Key_t, Value_t> pushed[2];
-    Pair<Key_t, Value_t> temp;
+    Pair<Key_t>* table;
+    Pair<Key_t> pushed[2];
+    Pair<Key_t> temp;
     
     size_t old_cap;
-    Pair<Key_t, Value_t>* old_tab;
+    Pair<Key_t>* old_tab;
 
     int resizing_lock = 0;
     std::shared_mutex *mutex;
@@ -85,8 +85,8 @@ class CuckooHash : public Hash<Key_t, Value_t> {
 };
 
 
-template <typename Key_t, typename Value_t>
-void CuckooHash<Key_t, Value_t>::Insert(Key_t& key, Value_t value){
+template <typename Key_t>
+void CuckooHash<Key_t>::Insert(Key_t& key, Value_t value){
     uint64_t f_hash, s_hash;
     if constexpr(sizeof(Key_t) > 8){
     	f_hash = hash_funcs[0](key, sizeof(Key_t), _seed);
@@ -107,25 +107,37 @@ RETRY:
 
     { // try first hashing
 	unique_lock<shared_mutex> f_lock(mutex[f_idx/locksize]);
-	if(memcmp(table[f_idx].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
-	    memcpy(table[f_idx].key, key, sizeof(Key_t));
-	    if constexpr(sizeof(Value_t) > 8)
-		memcpy(table[f_idx].value, value, sizeof(Value_t));
-	    else
+	if constexpr(sizeof(Key_t) > 8){
+	    if(memcmp(table[f_idx].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
+	        memcpy(table[f_idx].key, key, sizeof(Key_t));
 		memcpy(&table[f_idx].value, &value, sizeof(Value_t));
-	    return;
+	        return;
+	    }
+	}
+	else{
+	    if(memcmp(&table[f_idx].key, &INVALID<Key_t>, sizeof(Key_t)) == 0){
+	        memcpy(&table[f_idx].key, &key, sizeof(Key_t));
+		memcpy(&table[f_idx].value, &value, sizeof(Value_t));
+	        return;
+	    }
 	}
     }
 
     { // try second hashing
 	unique_lock<shared_mutex> s_lock(mutex[s_idx/locksize]);
-	if(memcmp(table[s_idx].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
-	    memcpy(&table[s_idx].key, &key, sizeof(Key_t));
-	    if constexpr(sizeof(Value_t) > 8)
-		memcpy(table[s_idx].value, value, sizeof(Value_t));
-	    else
+	if constexpr(sizeof(Key_t) > 8){
+	    if(memcmp(table[s_idx].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
+	        memcpy(&table[s_idx].key, &key, sizeof(Key_t));
 		memcpy(&table[s_idx].value, &value, sizeof(Value_t));
-	    return;
+	        return;
+	    }
+	}
+	else{
+	    if(memcmp(&table[s_idx].key, &INVALID<Key_t>, sizeof(Key_t)) == 0){
+	        memcpy(&table[s_idx].key, &key, sizeof(Key_t));
+		memcpy(&table[s_idx].value, &value, sizeof(Value_t));
+	        return;
+	    }
 	}
     }
 
@@ -186,11 +198,15 @@ PATH_RETRY:
     goto RETRY;
 }
 
-template <typename Key_t, typename Value_t>
-vector<pair<size_t, char*>> CuckooHash<Key_t, Value_t>::find_path(size_t target){
-    vector<pair<size_t, char*>> path;
+template <typename Key_t>
+vector<pair<size_t, Key_t>> CuckooHash<Key_t>::find_path(size_t target){
+    vector<pair<size_t, Key_t>> path;
+    //vector<pair<size_t, char*>> path;
     path.reserve(kCuckooThreshold);
-    path.emplace_back(target, table[target].key);
+    if constexpr(sizeof(Key_t) > 8)
+	path.push_back(target, table[target].key);
+    else
+        path.emplace_back(target, table[target].key);
 
     auto cur = target;
     int i = 0;
@@ -202,7 +218,7 @@ vector<pair<size_t, char*>> CuckooHash<Key_t, Value_t>::find_path(size_t target)
 		break;
 	}
 	else{
-	    key = &table[cur].key;
+	    key = (char*)&table[cur].key;
 	    if(memcmp(key, &INVALID<Key_t>, sizeof(Key_t)) == 0)
 		break;
 	}
@@ -242,8 +258,8 @@ vector<pair<size_t, char*>> CuckooHash<Key_t, Value_t>::find_path(size_t target)
     return move(path);
 }
 
-template <typename Key_t, typename Value_t>
-char* CuckooHash<Key_t, Value_t>::Get(Key_t& key){
+template <typename Key_t>
+char* CuckooHash<Key_t>::Get(Key_t& key){
     while(resizing_lock){
 	asm("nop");
     }
@@ -263,14 +279,11 @@ char* CuckooHash<Key_t, Value_t>::Get(Key_t& key){
 		return (char*)table[idx].value;
 	}
     }
-    if constexpr(sizeof(Value_t) > 8)
-	return (char*)NONE<Value_t>;
-    else
-	return (char*)NONE<Value_t>;
+    return (char*)NONE;
 }
 
-template <typename Key_t, typename Value_t>
-bool CuckooHash<Key_t, Value_t>::insert4resize(Key_t& key, Value_t value){
+template <typename Key_t>
+bool CuckooHash<Key_t>::insert4resize(Key_t& key, Value_t value){
     uint64_t f_hash, s_hash;
     if constexpr(sizeof(Key_t) > 8){
     	f_hash = hash_funcs[0](key, sizeof(Key_t), _seed);
@@ -287,26 +300,17 @@ bool CuckooHash<Key_t, Value_t>::insert4resize(Key_t& key, Value_t value){
     if constexpr(sizeof(Key_t) > 8){
 	if(memcmp(table[f_idx].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
 	    memcpy(table[f_idx].key, key, sizeof(Key_t));
-	    if constexpr(sizeof(Value_t) > 8)
-		memcpy(table[f_idx].value, value, sizeof(Value_t));
-	    else
-		memcpy(&table[f_idx].value, &value, sizeof(Value_t));
+	    memcpy(&table[f_idx].value, &value, sizeof(Value_t));
 	}
 	else if(memcmp(table[s_idx].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
 	    memcpy(table[s_idx].key, key, sizeof(Key_t));
-	    if constexpr(sizeof(Value_t) > 8)
-		memcpy(table[s_idx].value, value, sizeof(Value_t));
-	    else
-		memcpy(&table[s_idx].value, &value, sizeof(Value_t));
+	    memcpy(&table[s_idx].value, &value, sizeof(Value_t));
 	}
 	else{
 	    auto path1 = find_path(f_idx);
 	    auto path2 = find_path(s_idx);
 	    memcpy(pushed[0].key, key, sizeof(Key_t));
-	    if constexpr(sizeof(Value_t) > 8)
-		memcpy(pushed[0].value, value, sizeof(Value_t));
-	    else
-		memcpy(&pushed[0].value, &value, sizeof(Value_t));
+	    memcpy(&pushed[0].value, &value, sizeof(Value_t));
 	    if(path1.size() == 0 && path2.size() == 0)
 		return false;
 	    else{
@@ -324,26 +328,17 @@ bool CuckooHash<Key_t, Value_t>::insert4resize(Key_t& key, Value_t value){
     else{
 	if(memcmp(&table[f_idx].key, &INVALID<Key_t>, sizeof(Key_t)) == 0){
 	    memcpy(&table[f_idx].key, &key, sizeof(Key_t));
-	    if constexpr(sizeof(Value_t) > 8)
-		memcpy(table[f_idx].value, value, sizeof(Value_t));
-	    else
-		memcpy(&table[f_idx].value, &value, sizeof(Value_t));
+	    memcpy(&table[f_idx].value, &value, sizeof(Value_t));
 	}
 	else if(memcmp(&table[s_idx].key, &INVALID<Key_t>, sizeof(Key_t)) == 0){
 	    memcpy(&table[s_idx].key, &key, sizeof(Key_t));
-	    if constexpr(sizeof(Value_t) > 8)
-		memcpy(table[s_idx].value, value, sizeof(Value_t));
-	    else
-		memcpy(&table[s_idx].value, &value, sizeof(Value_t));
+	    memcpy(&table[s_idx].value, &value, sizeof(Value_t));
 	}
 	else{
 	    auto path1 = find_path(f_idx);
 	    auto path2 = find_path(s_idx);
 	    memcpy(&pushed[0].key, &key, sizeof(Key_t));
-	    if constexpr(sizeof(Value_t) > 8)
-		memcpy(pushed[0].value, value, sizeof(Value_t));
-	    else
-		memcpy(&pushed[0].value, &value, sizeof(Value_t));
+	    memcpy(&pushed[0].value, &value, sizeof(Value_t));
 	    if(path1.size() == 0 && path2.size() == 0)
 		return false;
 	    else{
@@ -361,8 +356,8 @@ bool CuckooHash<Key_t, Value_t>::insert4resize(Key_t& key, Value_t value){
     return true;
 }
 
-template <typename Key_t, typename Value_t>
-bool CuckooHash<Key_t, Value_t>::resize(void){
+template <typename Key_t>
+bool CuckooHash<Key_t>::resize(void){
     unique_lock<shared_mutex>* lock[nlocks];
     for(int i=0; i<nlocks; i++){
 	lock[i] = new unique_lock<shared_mutex>(mutex[i]);
@@ -372,13 +367,13 @@ bool CuckooHash<Key_t, Value_t>::resize(void){
     bool success = true;
     size_t i = 0;
     size_t new_cap = capacity;;
-    Pair<Key_t, Value_t>*  new_tab;
+    Pair<Key_t>*  new_tab;
     do{
 	success = true;
 	if(!new_tab && new_tab != table)
 	    delete[] new_tab;
 	new_cap = new_cap * kResizingFactor;
-	new_tab = new Pair<Key_t, Value_t>[new_cap];
+	new_tab = new Pair<Key_t>[new_cap];
 	for(int i=0; i<capacity; i++){
 	    if constexpr(sizeof(Key_t) > 8){
 		if(memcmp(table[i].key, INVALID<Key_t>, sizeof(Key_t)) != 0){
@@ -418,8 +413,8 @@ bool CuckooHash<Key_t, Value_t>::resize(void){
     return success;
 }
 
-template <typename Key_t, typename Value_t>
-bool CuckooHash<Key_t, Value_t>::execute_path(vector<pair<size_t, char*>>& path){
+template <typename Key_t>
+bool CuckooHash<Key_t>::execute_path(vector<pair<size_t, Key_t>>& path){
     int i = 0;
     int j = (i+1) % 2;
 
@@ -432,31 +427,25 @@ bool CuckooHash<Key_t, Value_t>::execute_path(vector<pair<size_t, char*>>& path)
     return true;
 } // dont need??
 
-template <typename Key_t, typename Value_t>
-bool CuckooHash<Key_t, Value_t>::execute_path(vector<pair<size_t, char*>>& path, Key_t& key, Value_t value){
+template <typename Key_t>
+bool CuckooHash<Key_t>::execute_path(vector<pair<size_t, Key_t>>& path, Key_t& key, Value_t value){
     for(int i=path.size()-1; i>0; --i){
-	memcpy(&table[path[i].first], &table[path[i-1].first], sizeof(Pair<Key_t, Value_t>));
+	memcpy(&table[path[i].first], &table[path[i-1].first], sizeof(Pair<Key_t>));
     }
 
     if constexpr(sizeof(Key_t) > 8){
 	memcpy(table[path[0].first].key, key, sizeof(Key_t));
-	if constexpr(sizeof(Value_t) > 8)
-	    memcpy(table[path[0].first].value, value, sizeof(Value_t));
-	else
-	    memcpy(&table[path[0].first].value, &value, sizeof(Value_t));
+	memcpy(&table[path[0].first].value, &value, sizeof(Value_t));
     }
     else{
 	memcpy(&table[path[0].first].key, &key, sizeof(Key_t));
-	if constexpr(sizeof(Value_t) > 8)
-	    memcpy(table[path[0].first].value, value, sizeof(Value_t));
-	else
-	    memcpy(&table[path[0].first].value, &value, sizeof(Value_t));
+	memcpy(&table[path[0].first].value, &value, sizeof(Value_t));
     }
     return true;
 }
 
-template <typename Key_t, typename Value_t>
-bool CuckooHash<Key_t, Value_t>::Delete(Key_t& key){
+template <typename Key_t>
+bool CuckooHash<Key_t>::Delete(Key_t& key){
     return true;
 }
 

@@ -1,6 +1,6 @@
 .PHONY: all clean
 
-CXX := clang++
+CXX := g++
 CXXFLAGS := -std=c++17 -g
 LDLIBS := -lpthread -I. 
 
@@ -18,4 +18,4 @@ extendible: index/extendible_hash.h test/hashtable_test.cpp
 key_gen: bench/key_generator.h test/key_test.cpp
 	$(CXX) $(CXXFLAGS) -o bin/key test/key_test.cpp $(LDLIBS)
 clean:
-	rm bench/*.o bin/*
+	rm bin/*
