@@ -1,9 +1,11 @@
 #ifndef COMMON_H_
 #define COMMON_H_
-
 #define CAS(_p, _u, _v) (__atomic_compare_exchange_n (_p, _u, _v, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE))
+#include <cstdlib>
+#include <cstring>
 
 typedef int64_t Value_t;
+
 template <typename Key_t>
 struct Pair{
     Key_t key;

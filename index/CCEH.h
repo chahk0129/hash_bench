@@ -47,6 +47,14 @@ struct Directory{
     size_t capacity;
     size_t depth;
 
+    Directory(void): depth(kDefaultDepth), capacity(pow(2, kDefaultDepth)), sema(0){
+	_ = new Segment<Key_t>*[capacity];
+    }
+    Directory(size_t _depth): depth(_depth), capacity(pow(2, _depth)), sema(0){
+	_ = new Segment<Key_t>*[capacity];
+    }
+    ~Directory(void) { }
+
     bool suspend(void){
 	int64_t val;
 	do{
@@ -76,29 +84,28 @@ struct Directory{
 	    val = sema;
     }
 
-    Directory(void): depth(kDefaultDepth), sema(0){
-	_ = new Segment<Key_t>*[capacity];
-    }
-    Directory(size_t _depth): depth(_depth), sema(0){
-	_ = new Segment<Key_t>*[capacity];
-    }
-    ~Directory(void) { }
 };
 
 template <typename Key_t>
-class CCEH : public Hash<Key_t>{
+class CCEH : public Hash<Key_t> {
+    private:
+	Directory<Key_t>* dir;
     public:
-	CCEH(void);
-	CCEH(size_t);
-	~CCEH(void);
+	CCEH(void): dir(new Directory<Key_t>(0)){
+	    for(int i=0; i<dir->capacity; i++)
+		dir->_[i] = new Segment<Key_t>(0);
+	}
+	CCEH(size_t initCap): dir(new Directory<Key_t>(static_cast<size_t>(log2(initCap)))){
+	    for(int i=0; i<dir->capacity; i++)
+		dir->_[i] = new Segment<Key_t>(static_cast<size_t>(log2(initCap)));
+	}
+	~CCEH(void){ }
 	void Insert(Key_t&, Value_t);
 	bool Delete(Key_t&);
 	char* Get(Key_t&);
 	double Utilization(void);
 	size_t Capacity(void);
 	
-    private:
-	Directory<Key_t>* dir;
 };
 
 template <typename Key_t>
@@ -154,30 +161,6 @@ Segment<Key_t>** Segment<Key_t>::Split(void){
     return split;
 }
 
-    template <typename Key_t>
-CCEH<Key_t>::CCEH(void)
-    : dir{new Directory<Key_t>(0)}
-{
-    for (unsigned i = 0; i < dir->capacity; ++i) {
-	dir->_[i] = new Segment<Key_t>(0);
-    }
-
-}
-
-    template <typename Key_t>
-CCEH<Key_t>::CCEH(size_t initCap)
-    : dir{new Directory<Key_t>(static_cast<size_t>(log2(initCap)))}
-{
-    for (unsigned i = 0; i < dir->capacity; ++i) {
-	dir->_[i] = new Segment<Key_t>(static_cast<size_t>(log2(initCap)));
-    }
-}
-
-    template <typename Key_t>
-CCEH<Key_t>::~CCEH(void)
-{ }
-
-
 template <typename Key_t>
 void CCEH<Key_t>::Insert(Key_t& key, Value_t value) {
     size_t f_hash;
@@ -212,7 +195,7 @@ RETRY:
     auto target_local_depth = target->local_depth;
     auto pattern = (f_hash >> (8*sizeof(f_hash) - target->local_depth));
     for(unsigned i=0; i<kNumPairPerCacheLine * kNumCacheLine; ++i){
-	auto loc = (f_idx + i) % Segment::kNumSlot;
+	auto loc = (f_idx + i) % Segment<Key_t>::kNumSlot;
 	if constexpr(sizeof(Key_t) > 8){
 	    if((((hash_funcs[0](target->_[loc].key, sizeof(Key_t), f_seed) >> (8*sizeof(f_hash)-target_local_depth)) != pattern) ||
 			(memcmp(target->_[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0))){
@@ -242,7 +225,7 @@ RETRY:
     auto s_idx = (s_hash & kMask) * kNumPairPerCacheLine;
 
     for(unsigned i=0; i<kNumPairPerCacheLine * kNumCacheLine; ++i){
-	auto loc = (s_idx + i) % Segment::kNumSlot;
+	auto loc = (s_idx + i) % Segment<Key_t>::kNumSlot;
 	if constexpr(sizeof(Key_t) > 8){
 	    if((((hash_funcs[0](target->_[loc].key, sizeof(Key_t), f_seed) >> (8*sizeof(f_hash)-target_local_depth)) != pattern) ||
 			(memcmp(target->_[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0))){
@@ -336,7 +319,7 @@ bool CCEH<Key_t>::Delete(Key_t& key) {
 }
 
 template <typename Key_t>
-Value_t CCEH::Get(Key_t& key) {
+char* CCEH<Key_t>::Get(Key_t& key) {
     size_t f_hash;
     if constexpr(sizeof(Key_t) > 8)
 	f_hash = hash_funcs[0](key, sizeof(Key_t), f_seed);
@@ -371,19 +354,19 @@ RETRY:
     }
 
     for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
-	auto loc = (f_idx+i) % Segment::kNumSlot;
+	auto loc = (f_idx+i) % Segment<Key_t>::kNumSlot;
 	if constexpr(sizeof(Key_t)>8){
 	    if(memcmp(target->_[loc].key, key, sizeof(Key_t)) == 0){
 		Value_t v = target->_[loc].value;
 		target->mutex.unlock();
-		return v;
+		return (char*)v;
 	    }
 	}
 	else{
 	    if(memcmp(&target->_[loc].key, &key, sizeof(Key_t)) == 0){
 		Value_t v = target->_[loc].value;
 		target->mutex.unlock();
-		return v;
+		return (char*)v;
 	    }
 	}
     }
@@ -396,26 +379,26 @@ RETRY:
     auto s_idx = (s_hash & kMask) * kNumPairPerCacheLine;
 
     for(unsigned i=0; i<kNumPairPerCacheLine * kNumCacheLine; ++i){
-	auto loc = (s_idx+i) % Segment::kNumSlot;
+	auto loc = (s_idx+i) % Segment<Key_t>::kNumSlot;
 	if constexpr(sizeof(Key_t)>8){
 	    if(memcmp(target->_[loc].key, key, sizeof(Key_t)) == 0){
 		Value_t v = target->_[loc].value;
 		target->mutex.unlock();
-		return v;
+		return (char*)v;
 	    }
 	}
 	else{
 	    if(memcmp(&target->_[loc].key, &key, sizeof(Key_t)) == 0){
 		Value_t v = target->_[loc].value;
 		target->mutex.unlock();
-		return v;
+		return (char*)v;
 	    }
 	}
 
     }
 
     target->mutex.unlock();
-    return NONE;
+    return (char*)NONE;
 }
 
 template <typename Key_t>
@@ -426,7 +409,7 @@ double CCEH<Key_t>::Utilization(void){
 	auto target = dir->_[i];
 	auto stride = pow(2, dir->depth - target->local_depth);
 	auto pattern = (i >> (dir->depth - target->local_depth));
-	for(unsigned j=0; j<Segment::kNumSlot; ++j){
+	for(unsigned j=0; j<Segment<Key_t>::kNumSlot; ++j){
 	    size_t key_hash;
 	    if constexpr(sizeof(Key_t) > 8){
 		key_hash = hash_funcs[0](target->_[j].key, sizeof(Key_t) ,f_seed);
@@ -440,19 +423,20 @@ double CCEH<Key_t>::Utilization(void){
 		    sum++;
 		}
 	    }
-	    i += stride;
 	}
-	return ((double)sum) / ((double)cnt * Segment::kNumSlot)*100.0;
+	i += stride;
     }
+    return ((double)sum) / ((double)cnt * Segment<Key_t>::kNumSlot)*100.0;
+}
 
 
-    template <typename Key_t>
-	size_t CCEH::Capacity(void) {
-	    size_t cnt = 0;
-	    for(int i=0; i<dir->capacity; cnt++){
-		auto target = dir->_[i];
-		auto stride = pow(2, dir->depth - target->local_depth);
-		i += stride;
-	    }
-	    return cnt * Segment::kNumSlot;
-	}
+template <typename Key_t>
+size_t CCEH<Key_t>::Capacity(void) {
+    size_t cnt = 0;
+    for(int i=0; i<dir->capacity; cnt++){
+	auto target = dir->_[i];
+	auto stride = pow(2, dir->depth - target->local_depth);
+	i += stride;
+    }
+    return cnt * Segment<Key_t>::kNumSlot;
+}

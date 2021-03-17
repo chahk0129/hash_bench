@@ -6,8 +6,8 @@ LDLIBS := -lpthread -I.
 
 all: cuckoo linear extendible
 
-CCEH: index/CCEH.h test/hashtable_test.cpp
-	$(CXX) $(CXXFLAGS) -o bin/cceh test/hashtable_test.cpp $(LDLIBS) -DCCEH
+cceh: index/CCEH.h test/hashtable_test.cpp
+	$(CXX) $(CXXFLAGS) -o bin/cceh test/hashtable_test.cpp $(LDLIBS) -Dcceh
 cuckoo: index/cuckoo_hash.h test/hashtable_test.cpp
 	$(CXX) $(CXXFLAGS) -o bin/cuc test/hashtable_test.cpp $(LDLIBS)
 
