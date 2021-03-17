@@ -2,6 +2,8 @@
 #include "index/linear_probing.h"
 #elif defined EXT
 #include "index/extendible_hash.h"
+#elif defined CCEH
+#include "index/CCEH.h"
 #else
 #include "index/cuckoo_hash.h"
 #endif
@@ -36,6 +38,8 @@ int main(int argc, char* argv[]){
     Hash<Key>* hashtable = new LinearProbingHash<Key>(initialTableSize);
 #elif defined EXT
     Hash<Key>* hashtable = new ExtendibleHash<Key>(initialTableSize/Block<Key>::kNumSlot);
+#elif defined CCEH
+    Hash<Key>* hashtable = new CCEH<Key>(initialTableSize/Block<Key>::kNumSlot);
 #else
     Hash<Key>* hashtable = new CuckooHash<Key>(initialTableSize);
 #endif
