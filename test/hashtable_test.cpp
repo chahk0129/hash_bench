@@ -40,6 +40,7 @@ int main(int argc, char* argv[]){
     Hash<Key>* hashtable = new CuckooHash<Key>(initialTableSize);
 #endif
 
+    invalid_initialize<Key>();
     generate_int_workloads(input, numData);
 
     vector<thread> inserts;

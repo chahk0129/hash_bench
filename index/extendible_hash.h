@@ -26,7 +26,8 @@ struct Block{
   // static const size_t kBlockSize = 16*1024; // 256 - 1
   // static const size_t kBlockSize = 64*1024; // 1024 - 1
   static const size_t kBlockSize = 256*1024; // 4096 - 1
-  static const size_t kNumSlot = kBlockSize/sizeof(Pair<Key_t>);
+  static const size_t kNumSlot = 1024;
+  //static const size_t kNumSlot = kBlockSize/sizeof(Pair<Key_t>);
 
   Block(void)
   : local_depth{0}
@@ -70,7 +71,7 @@ struct Directory {
   }
 
   ~Directory(void) {
-    delete [] _;
+    //delete [] _;
   }
 
   void SanityCheck(void*);
@@ -160,14 +161,15 @@ class ExtendibleHash : public Hash<Key_t> {
 
 };
 
-
 template <typename Key_t>
 Block<Key_t>** Block<Key_t>::Split(void){
      Block<Key_t>** s = new Block<Key_t>*[2];
-     s[0] = new Block<Key_t>(local_depth+1);
+     s[0] = this;
+     //s[0] = new Block<Key_t>(local_depth+1);
      s[1] = new Block<Key_t>(local_depth+1);
 
-     auto pattern = ((size_t)1 << local_depth);
+//     auto pattern = ((size_t)1 << local_depth);
+     auto pattern = ((size_t)1 << (sizeof(int64_t)*8 - local_depth -1));
      int left =0, right = 0;
      for(int i=0; i<kNumSlot; i++){
 	 size_t key_hash;
@@ -178,11 +180,12 @@ Block<Key_t>** Block<Key_t>::Split(void){
 		 memcpy(&s[1]->_[right].value, &_[i].value, sizeof(Value_t));
 		 right++;
 	     }
+	     /*
 	     else{
 		 memcpy(s[0]->_[left].key, _[i].key, sizeof(Key_t));
 		 memcpy(&s[0]->_[left].value, &_[i].value, sizeof(Value_t));
 		 left++;
-	     }
+	     }*/
 	 }
 	 else{
 	     key_hash = h(&_[i].key, sizeof(Key_t));
@@ -191,11 +194,12 @@ Block<Key_t>** Block<Key_t>::Split(void){
 		 memcpy(&s[1]->_[right].value, &_[i].value, sizeof(Value_t));
 		 right++;
 	     }
+	     /*
 	     else{
 		 memcpy(&s[0]->_[left].key, &_[i].key, sizeof(Key_t));
 		 memcpy(&s[0]->_[left].value, &_[i].value, sizeof(Value_t));
 		 left++;
-	     }
+	     }*/
 	 }
      }
      return s;
@@ -210,7 +214,8 @@ void ExtendibleHash<Key_t>::Insert(Key_t& key, Value_t value){
 	key_hash = h(&key, sizeof(Key_t));
 
 RETRY:
-    auto x = (key_hash % dir->capacity);
+    //auto x = (key_hash % dir->capacity);
+    auto x = (key_hash  >> (8*sizeof(key_hash) - dir->global_depth));
     auto target = dir->_[x];
 
     if(!target->mutex.try_lock()){
@@ -218,18 +223,21 @@ RETRY:
 	goto RETRY;
     }
 
-    auto target_check = (key_hash % dir->capacity);
+    auto target_check = (key_hash >> (8*sizeof(key_hash) - dir->global_depth));
     if(target != dir->_[target_check]){
 	target->mutex.unlock();
 	std::this_thread::yield();
 	goto RETRY;
     }
 
-    auto pattern = (key_hash % (size_t)pow(2, target->local_depth));
+   // auto pattern = (key_hash % (size_t)pow(2, target->local_depth));
+    auto pattern = (key_hash >> (8*sizeof(key_hash) - target->local_depth));
     for(int i=0; i<Block<Key_t>::kNumSlot; i++){
-	auto loc = (key_hash + i) % Block<Key_t>::kNumSlot;
+	auto loc = i;
+	//auto loc = (key_hash + i) % Block<Key_t>::kNumSlot;
 	if constexpr(sizeof(Key_t) > 8){
-	    if(((h(target->_[loc].key, sizeof(Key_t)) % (size_t)pow(2, target->local_depth)) != pattern)
+	    //if(((h(target->_[loc].key, sizeof(Key_t)) % (size_t)pow(2, target->local_depth)) != pattern)
+	    if(((h(target->_[loc].key, sizeof(Key_t)) >> (8*sizeof(key_hash)-target->local_depth)) != pattern)
 		|| (memcmp(target->_[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0)){
 		memcpy(target->_[loc].key, key, sizeof(Key_t));
 		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
@@ -238,7 +246,8 @@ RETRY:
 	    }
 	}
 	else{
-	    if(((h(&target->_[loc].key, sizeof(Key_t)) % (size_t)pow(2, target->local_depth)) != pattern)
+	    //if(((h(&target->_[loc].key, sizeof(Key_t)) % (size_t)pow(2, target->local_depth)) != pattern)
+	    if(((h(&target->_[loc].key, sizeof(Key_t)) >> (8*sizeof(key_hash)-target->local_depth)) != pattern)
 		|| (memcmp(&target->_[loc].key, &INVALID<Key_t>, sizeof(Key_t)) == 0)){
 		memcpy(&target->_[loc].key, &key, sizeof(Key_t));
 		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
@@ -257,17 +266,31 @@ DIR_RETRY:
 	    goto DIR_RETRY;
 	}
 
-	x = (key_hash % dir->capacity);
+	//x = (key_hash % dir->capacity);
+	x = (key_hash >> (8 * sizeof(key_hash) - dir->global_depth));
 	auto dir_old = dir;
 	auto blocks = dir->_;
 	auto _dir = new Directory<Key_t>(dir->global_depth+1);
+	for(int i=0; i<dir->capacity; i++){
+	    if(i == x){
+		 _dir->_[2*i] = s[0];
+		 _dir->_[2*i+1] = s[1];
+	    }
+	    else{
+		 _dir->_[2*i] = blocks[i];
+		 _dir->_[2*i+1] = blocks[i];
+	    }
+	}
+	/*
 	memcpy(_dir->_, blocks, sizeof(Block<Key_t>*)*dir->capacity);
 	memcpy(_dir->_+dir->capacity,  blocks, sizeof(Block<Key_t>*)*dir->capacity);
-	_dir[x] = s[0];
-	_dir[x+dir->capacity] = s[1];
-
+	_dir->_[x] = s[0];
+	_dir->_[x+dir->capacity] = s[1];
+	*/
 	dir = _dir;
 	delete dir_old;
+	s[0]->local_depth++;
+	s[0]->mutex.unlock();
     }
     else{
 	if(!dir->acquire()){
@@ -275,9 +298,30 @@ DIR_RETRY:
 	    goto DIR_RETRY;
 	}
 
-	x = (key_hash % dir->capacity);
-	dir->LSBUpdate(s[0]->local_depth, dir->capacity, x, s);
+	x = (key_hash >> (8*sizeof(key_hash) - dir->global_depth));
+	if(dir->global_depth == target->local_depth + 1){
+	    if(x % 2 == 0){
+		dir->_[x] = s[0];
+		dir->_[x+1] = s[1];
+	    }
+	    else{
+		dir->_[x] = s[1];
+		dir->_[x-1] = s[0];
+	    }
+	}
+	//x = (key_hash % dir->capacity);
+	//dir->LSBUpdate(s[0]->local_depth+1, dir->capacity, x, s);
+	else{
+	    int stride = pow(2, dir->global_depth - target->local_depth);
+	    auto loc = x - (x%stride);
+	    for(int i=0; i<stride/2; i++)
+		dir->_[loc+stride/2+i] = s[1];
+	    for(int i=0; i<stride/2; i++)
+		dir->_[loc+i] = s[0];
+	}
 	dir->release();
+	s[0]->local_depth++;
+	s[0]->mutex.unlock();
     }
     goto RETRY;
 }
@@ -332,15 +376,15 @@ RETRY:
 
     for(int i=0; i<Block<Key_t>::kNumSlot; i++){
 	if constexpr(sizeof(Key_t) > 8){
-	    if(memcmp(dir->_[i].key, key, sizeof(Key_t))){
+	    if(memcmp(target->_[i].key, key, sizeof(Key_t)) == 0){
 		target->mutex.unlock();
-		return (char*)dir->_[i].value;
+		return (char*)target->_[i].value;
 	    }
 	}
 	else{
-	    if(memcmp(&dir->_[i].key, &key, sizeof(Key_t))){
+	    if(memcmp(&target->_[i].key, &key, sizeof(Key_t)) == 0){
 		target->mutex.unlock();
-		return (char*)dir->_[i].value;
+		return (char*)target->_[i].value;
 	    }
 	}
     }

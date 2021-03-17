@@ -165,7 +165,7 @@ size_t LinearProbingHash<Key_t>::getLocation(size_t hash_value, size_t _capacity
 	while(memcmp(_dict[cur].key, INVALID<Key_t>, sizeof(Key_t)) != 0){
 	    cur = (cur+1) % _capacity;
 	    i++;
-	    if(!(i < _capacity))
+	    if(!(i < capacity))
 		return -1;
 	}
 	return cur;
