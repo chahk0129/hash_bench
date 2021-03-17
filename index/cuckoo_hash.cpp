@@ -365,26 +365,38 @@ char* CuckooHash<Key_t>::Get(Key_t& key) {
 		      return (char*)old_tab[idx].value;
       }
 
-    return (chaNONE;
   } else {
     for (int i = 0; i < kNumHash; i++) {
-      auto idx = hash_funcs[i](&key, sizeof(key), 0xc70f6907UL) % capacity;
+	    int idx;
+	    if constexpr(sizeof(Key_t) > 8)
+		    idx = hash_funcs[i](key, sizeof(Key_t), 0xc70f6907UL) % old_cap;
+	    else
+		    idx = hash_funcs[i](&key, sizeof(Key_t), 0xc70f6907UL) % old_cap;
       std::shared_lock<std::shared_mutex> lock(mutex[idx/locksize]);
-      if (table[idx].key == key) {
-        return (char*)table[idx].value;
+      if constexpr(sizeof(Key_t) > 8){
+	      if(memcmp(table[idx].key, key, sizeof(Key_t)) == 0)
+		      return (char*)table[idx].value;
+      }
+      else
+	      if(memcmp(&table[idx].key, &key, sizeof(Key_t)) == 0)
+		      return (char*)table[idx].value;
       }
     }
     return (char*)NONE;
-  }
 }
 
 template <typename Key_t>
 double CuckooHash<Key_t>::Utilization(void) {
   size_t n = 0;
   for (int i = 0; i < capacity; i++) {
-    if (table[i].key != INVALID) {
-      n += 1;
-    }
+	  if constexpr(sizeof(Key_t) > 8)){
+		  if(memcmp(table[i].key, INVALID<Key_t>, sizeof(Key_t)) != 0)
+			  n++;
+	  }
+	  else{
+		  if(memcmp(&table[i].key, &INVALID<Key_t>, sizeof(Key_t)) != 0)
+			  n++;
+	  }
   }
   return ((double)n)/((double)capacity)*100;
 }
@@ -405,29 +417,37 @@ bool CuckooHash<Key_t>::resize(void) {
   int prev_nlocks = nlocks;
 
   bool success = true;
-  size_t i = 0;
+  size_t num_grows = 0;
 
   do {
     success = true;
     if (table != old_tab) delete [] table;
     capacity = capacity * kResizingFactor;
-    table = new Pair[capacity];
+    table = new Pair<Key_t>[capacity];
     if (table == nullptr) {
       cerr << "error: memory allocation failed." << endl;
       exit(1);
     }
-    clflush((char*)&table, sizeof(size_t));
-    clflush((char*)&capacity, sizeof(Pair*));
 
     for (unsigned i = 0; i < old_cap; ++i) {
-      if (old_tab[i].key != INVALID) {
-        if (!insert4resize(old_tab[i].key, old_tab[i].value)) {
-          success = false;
-          break;
-        }
-      }
+	    if constexpr(sizeof(Key_t) > 8){
+		    if(memcmp(old_tab[i].key, INVALID<Key_t>, sizeof(Key_t)) != 0){
+			    if(!insert4resize(old_tab[i].key, old_tab[i].value)){
+				    success = false;
+				    break;
+			    }
+		    }
+	    }
+	    else{
+		    if(memcmp(&old_tab[i].key, &INVALID<Key_t>, sizeof(Key_t)) != 0){
+			    if(!insert4resize(old_tab[i].key, old_tab[i].value)){
+				    success = false;
+				    break;
+			    }
+		    }
+	    }
     }
-    ++i;
+    ++num_grows;
   } while (!success && i < kMaxGrows);
 
   for (int i = 0; i < prev_nlocks; ++i) {
@@ -438,7 +458,6 @@ bool CuckooHash<Key_t>::resize(void) {
     nlocks = capacity/locksize+1;
     mutex = new std::shared_mutex[nlocks];
     delete old_mutex;
-    clflush((char*)&table[0], sizeof(Pair*)*capacity);
   } else {
     exit(1);
   }
