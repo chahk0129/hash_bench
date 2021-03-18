@@ -29,7 +29,7 @@ class LinearProbingHash : public Hash <Key_t> {
     }
 
     void Insert(Key_t&, Value_t);
-    bool Delete(Key_t&){return true; }
+    bool Delete(Key_t&);
     char* Get(Key_t&);
     double Utilization(void){
 	size_t size = 0;
@@ -125,6 +125,42 @@ RETRY:
     goto RETRY;
 }
 
+template <typename Key_t>
+bool LinearProbingHash<Key_t>::Delete(Key_t& key){
+    uint64_t key_hash;
+    if constexpr(sizeof(Key_t) > 8)
+	key_hash = h(key, sizeof(Key_t));
+    else
+	key_hash = h(&key, sizeof(Key_t));
+
+RETRY:
+    while(resizing_lock){
+	asm("nop");
+    }
+    for(int i=0; i<capacity; i++){
+	auto loc = (key_hash + i) % capacity;
+	unique_lock<shared_mutex> lock(mutex[loc/locksize]);
+	if constexpr(sizeof(Key_t) > 8){
+	    if(memcmp(dict[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
+		return false;
+	    }
+	    if(memcmp(dict[loc].key, key, sizeof(Key_t)) == 0){
+		memcpy(dict[loc].key, INVALID<Key_t>, sizeof(Key_t));
+		return true;
+	    }
+	}
+	else{
+	    if(memcmp(&dict[loc].key, &INVALID<Key_t>, sizeof(Key_t)) == 0){
+		return false;
+	    }
+	    if(memcmp(&dict[loc].key, &key, sizeof(Key_t)) == 0){
+		memcpy(&dict[loc].key, &INVALID<Key_t>, sizeof(Key_t));
+		return true;
+	    }
+	}
+    }
+    return false;
+}
 
 template <typename Key_t>
 char* LinearProbingHash<Key_t>::Get(Key_t& key){

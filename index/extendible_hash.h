@@ -1,244 +1,204 @@
-#ifndef EXTENDIBLE_PTR_H_
-#define EXTENDIBLE_PTR_H_
+#pragma once
 
 #include <iostream>
 #include <cmath>
-#include <bitset>
-#include <unordered_map>
-#include <cstring>
-#include <vector>
 #include <thread>
+#include <bitset>
+#include <cassert>
+#include <unordered_map>
+#include <sys/types.h>
+#include <mutex>
 #include <shared_mutex>
 #include "util/pair.h"
 #include "util/hash.h"
 #include "util/interface.h"
 
-using namespace std;
+#define f_seed 0xc70697UL
+#define s_seed 0xc70697UL
 
 const size_t kMask = 256-1;
 const size_t kShift = 8;
+const size_t kNumPairPerCacheLine = 4;
+const size_t kNumCacheLine = 8;
+
+using namespace std;
 
 template <typename Key_t>
-struct Block{
-  // static const size_t kBlockSize = 256; // 4 - 1
-  // static const size_t kBlockSize = 1024; // 16 - 1
-  // static const size_t kBlockSize = 4*1024; // 64 - 1
-  // static const size_t kBlockSize = 16*1024; // 256 - 1
-  // static const size_t kBlockSize = 64*1024; // 1024 - 1
-  static const size_t kBlockSize = 256*1024; // 4096 - 1
-  static const size_t kNumSlot = 1024;
-  //static const size_t kNumSlot = kBlockSize/sizeof(Pair<Key_t>);
+struct Segment{
+    static const size_t kNumSlot = 1024;
 
-  Block(void)
-  : local_depth{0}
-  { }
+    Segment(void): local_depth(0){ }
+    Segment(size_t depth): local_depth(depth) { }
+    ~Segment(void) { }
+    
+    bool Insert4split(Key_t&, Value_t, size_t);
+    Segment<Key_t>** Split(void);
 
-  Block(size_t depth)
-  :local_depth{depth}
-  { }
-
-  ~Block(void) {
-  }
-
-  Block<Key_t>** Split(void);
-
-  Pair<Key_t> _[kNumSlot];
-  size_t local_depth;
-  std::shared_mutex mutex;
-  size_t numElem(void); 
+    Pair<Key_t> _[kNumSlot];
+    size_t local_depth;
+    shared_mutex mutex;
 };
 
 template <typename Key_t>
-struct Directory {
-  static const size_t kDefaultDepth = 10;
-  Block<Key_t>** _;
-  size_t global_depth;
-  size_t capacity;
-  int64_t sema = 0 ;
+struct Directory{
+    static const size_t kDefaultDepth = 10;
+    Segment<Key_t>** _;
+    int64_t sema;
+    size_t capacity;
+    size_t depth;
 
-  Directory(void) {
-    global_depth = kDefaultDepth;
-    capacity = pow(2, global_depth);
-    _ = new Block<Key_t>*[capacity];
-    sema = 0;
-  }
+    Directory(void): depth(kDefaultDepth), capacity(pow(2, kDefaultDepth)), sema(0){
+	_ = new Segment<Key_t>*[capacity];
+    }
+    Directory(size_t _depth): depth(_depth), capacity(pow(2, _depth)), sema(0){
+	_ = new Segment<Key_t>*[capacity];
+    }
+    ~Directory(void) { }
 
-  Directory(size_t depth) {
-    global_depth = depth;
-    capacity = pow(2, global_depth);
-    _ = new Block<Key_t>*[capacity];
-    sema = 0;
-  }
+    bool suspend(void){
+	int64_t val;
+	do{
+	    val = sema;
+	    if(val < 0) return false;
+	}while(!CAS(&sema, &val, -1));
 
-  ~Directory(void) {
-    //delete [] _;
-  }
+	int64_t wait = 0 - val - 1;
+	while(val && sema != wait){
+	    asm("nop");
+	}
+	return true;
+    }
 
-  void SanityCheck(void*);
-  void LSBUpdate(int, int, int, Block<Key_t>**);
+    bool lock(void){
+	int64_t val = sema;
+	while(val > -1){
+	    if(CAS(&sema, &val, val+1)) return true;
+	    val = sema;
+	}
+	return false;
+    }
 
-  bool suspend(void){
-      int64_t val;
-      do{
-	  val = sema;
-	  if(val < 0)
-	      return false;
-      }while(!CAS(&sema, &val, -1));
+    void unlock(void){
+	int64_t val = sema;
+	while(!CAS(&sema, &val, val-1))
+	    val = sema;
+    }
 
-      int64_t wait = 0 - val -1;
-      while(val && sema != wait){
-	  asm("nop");
-      }
-      return true;
-  }
-
-  bool acquire(void){
-      int64_t val = sema;
-      while(val > -1){
-	  if(CAS(&sema, &val, val+1))
-	      return true;
-	  val = sema;
-      }
-      return false;
-  }
-
-  void release(void){
-      int64_t val = sema;
-      while(!CAS(&sema, &val, val-1)){
-	  val = sema;
-      }
-  }
 };
 
 template <typename Key_t>
 class ExtendibleHash : public Hash<Key_t> {
-  private:
-    Directory<Key_t>* dir;
-  public:
-    ExtendibleHash(void): dir{new Directory<Key_t>(0)} {
-	for(int i=0; i<dir->capacity; i++){
-	    dir->_[i] = new Block<Key_t>(0);
+    private:
+	Directory<Key_t>* dir;
+    public:
+	ExtendibleHash(void): dir(new Directory<Key_t>(0)){
+	    for(int i=0; i<dir->capacity; i++)
+		dir->_[i] = new Segment<Key_t>(0);
 	}
-    }
-
-    ExtendibleHash(size_t _capacity): dir{new Directory<Key_t>(log2(_capacity))} {
-	for(int i=0; i<dir->capacity; i++){
-	    dir->_[i] = new Block<Key_t>(static_cast<size_t>(log2(_capacity)));
+	ExtendibleHash(size_t initCap): dir(new Directory<Key_t>(static_cast<size_t>(log2(initCap)))){
+	    for(int i=0; i<dir->capacity; i++)
+		dir->_[i] = new Segment<Key_t>(static_cast<size_t>(log2(initCap)));
 	}
-    }
-
-    ~ExtendibleHash(void){ }
-    void Insert(Key_t&, Value_t);
-    bool Delete(Key_t&);
-    char* Get(Key_t&);
-    double Utilization(void){
-	size_t sum = 0;
-	unordered_map<Block<Key_t>*, bool> set;
-	for(int i=0; i<dir->capacity; i++)
-	    set[dir->_[i]] = true;
-	for(auto& iter: set){
-	    for(int i=0; i<Block<Key_t>::kNumSlot; i++){
-		if constexpr(sizeof(Key_t) > 8){
-		    if(memcmp(iter.first->_[i].key, INVALID<Key_t>, sizeof(Key_t)) != 0)
-			sum++;
-		}
-		else{
-		    if(memcmp(&iter.first->_[i].key, &INVALID<Key_t>, sizeof(Key_t)) != 0)
-			sum++;
-		}
-	    }
-	}
-	return ((double)sum) / ((double)set.size() * Block<Key_t>::kNumSlot) * 100.0;
-    }
-
-    size_t Capacity(void){
-	unordered_map<Block<Key_t>*, bool> set;
-	for(int i=0; i<dir->capacity; i++)
-	    set[dir->_[i]] = true;
-	return set.size() * Block<Key_t>::kNumSlot;
-    }
-
-
+	~ExtendibleHash(void){ }
+	void Insert(Key_t&, Value_t);
+	bool Delete(Key_t&);
+	char* Get(Key_t&);
+	double Utilization(void);
+	size_t Capacity(void);
+	
 };
 
 template <typename Key_t>
-Block<Key_t>** Block<Key_t>::Split(void){
-     Block<Key_t>** s = new Block<Key_t>*[2];
-     s[0] = this;
-     //s[0] = new Block<Key_t>(local_depth+1);
-     s[1] = new Block<Key_t>(local_depth+1);
-
-//     auto pattern = ((size_t)1 << local_depth);
-     auto pattern = ((size_t)1 << (sizeof(int64_t)*8 - local_depth -1));
-     int left =0, right = 0;
-     for(int i=0; i<kNumSlot; i++){
-	 size_t key_hash;
-	 if constexpr(sizeof(Key_t) > 8){
-	     key_hash = h(_[i].key, sizeof(Key_t));
-	     if(key_hash & pattern){
-		 memcpy(s[1]->_[right].key, _[i].key, sizeof(Key_t));
-		 memcpy(&s[1]->_[right].value, &_[i].value, sizeof(Value_t));
-		 right++;
-	     }
-	     /*
-	     else{
-		 memcpy(s[0]->_[left].key, _[i].key, sizeof(Key_t));
-		 memcpy(&s[0]->_[left].value, &_[i].value, sizeof(Value_t));
-		 left++;
-	     }*/
-	 }
-	 else{
-	     key_hash = h(&_[i].key, sizeof(Key_t));
-	     if(key_hash & pattern){
-		 memcpy(&s[1]->_[right].key, &_[i].key, sizeof(Key_t));
-		 memcpy(&s[1]->_[right].value, &_[i].value, sizeof(Value_t));
-		 right++;
-	     }
-	     /*
-	     else{
-		 memcpy(&s[0]->_[left].key, &_[i].key, sizeof(Key_t));
-		 memcpy(&s[0]->_[left].value, &_[i].value, sizeof(Value_t));
-		 left++;
-	     }*/
-	 }
-     }
-     return s;
+bool Segment<Key_t>::Insert4split(Key_t& key, Value_t value, size_t loc) {
+    for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
+	auto slot = (loc+i) % kNumSlot;
+	if constexpr(sizeof(Key_t) > 8){
+	    if(memcmp(_[slot].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
+		memcpy(_[slot].key, key, sizeof(Key_t));
+		memcpy(&_[slot].value, &value, sizeof(Value_t));
+		return true;
+	    }
+	}
+	else{
+	    if(memcmp(&_[slot].key, &INVALID<Key_t>, sizeof(Key_t)) == 0){
+		memcpy(&_[slot].key, &key, sizeof(Key_t));
+		memcpy(&_[slot].value, &value, sizeof(Value_t));
+		return true;
+	    }
+	}
+    }
+    return false;
 }
 
 template <typename Key_t>
-void ExtendibleHash<Key_t>::Insert(Key_t& key, Value_t value){
-    size_t key_hash;
+Segment<Key_t>** Segment<Key_t>::Split(void){
+    Segment<Key_t>** split = new Segment<Key_t>*[2];
+    split[0] = this;
+    split[1] = new Segment<Key_t>(local_depth+1);
+
+    auto pattern = ((size_t)1 << (sizeof(size_t)*8 - local_depth - 1));
+    for (unsigned i = 0; i < kNumSlot; ++i) {
+	size_t f_hash;
+	if constexpr(sizeof(Key_t) > 8)
+	    f_hash = hash_funcs[0](_[i].key, sizeof(Key_t), f_seed);
+	else
+	    f_hash = hash_funcs[0](&_[i].key, sizeof(Key_t), f_seed);
+
+	if(f_hash & pattern){
+	    if(!split[1]->Insert4split(_[i].key, _[i].value, (f_hash & kMask)*kNumPairPerCacheLine)){
+		size_t s_hash;
+		if constexpr(sizeof(Key_t) > 8)
+		    s_hash = hash_funcs[2](_[i].key, sizeof(Key_t), s_seed);
+		else
+		    s_hash = hash_funcs[2](&_[i].key, sizeof(Key_t), s_seed);
+		if(!split[1]->Insert4split(_[i].key, _[i].value, (s_hash & kMask)*kNumPairPerCacheLine)){
+		    cerr << "[" << __func__ << "]: something wrong -- need to adjust probing distance" << endl;
+		}
+	    }
+	}
+    }
+
+    return split;
+}
+
+template <typename Key_t>
+void ExtendibleHash<Key_t>::Insert(Key_t& key, Value_t value) {
+    size_t f_hash;
     if constexpr(sizeof(Key_t) > 8)
-	key_hash = h(key, sizeof(Key_t));
+	f_hash = hash_funcs[0](key, sizeof(Key_t), f_seed);
     else
-	key_hash = h(&key, sizeof(Key_t));
+	f_hash = hash_funcs[0](&key, sizeof(Key_t), f_seed);
+    auto f_idx = (f_hash & kMask) * kNumPairPerCacheLine;
 
 RETRY:
-    //auto x = (key_hash % dir->capacity);
-    auto x = (key_hash  >> (8*sizeof(key_hash) - dir->global_depth));
+    auto x = (f_hash >> (8*sizeof(f_hash) - dir->depth));
     auto target = dir->_[x];
 
+    if(!target){
+	std::this_thread::yield();
+	goto RETRY;
+    }
+
+    /* acquire segment exclusive lock */
     if(!target->mutex.try_lock()){
 	std::this_thread::yield();
 	goto RETRY;
     }
 
-    auto target_check = (key_hash >> (8*sizeof(key_hash) - dir->global_depth));
+    auto target_check = (f_hash >> (8*sizeof(f_hash) - dir->depth));
     if(target != dir->_[target_check]){
 	target->mutex.unlock();
 	std::this_thread::yield();
 	goto RETRY;
     }
 
-   // auto pattern = (key_hash % (size_t)pow(2, target->local_depth));
-    auto pattern = (key_hash >> (8*sizeof(key_hash) - target->local_depth));
-    for(int i=0; i<Block<Key_t>::kNumSlot; i++){
-	auto loc = i;
-	//auto loc = (key_hash + i) % Block<Key_t>::kNumSlot;
+    auto target_local_depth = target->local_depth;
+    auto pattern = (f_hash >> (8*sizeof(f_hash) - target->local_depth));
+    for(unsigned i=0; i<kNumPairPerCacheLine * kNumCacheLine; ++i){
+	auto loc = (f_idx + i) % Segment<Key_t>::kNumSlot;
 	if constexpr(sizeof(Key_t) > 8){
-	    //if(((h(target->_[loc].key, sizeof(Key_t)) % (size_t)pow(2, target->local_depth)) != pattern)
-	    if(((h(target->_[loc].key, sizeof(Key_t)) >> (8*sizeof(key_hash)-target->local_depth)) != pattern)
-		|| (memcmp(target->_[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0)){
+	    if((((hash_funcs[0](target->_[loc].key, sizeof(Key_t), f_seed) >> (8*sizeof(f_hash)-target_local_depth)) != pattern) ||
+			(memcmp(target->_[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0))){
 		memcpy(target->_[loc].key, key, sizeof(Key_t));
 		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
 		target->mutex.unlock();
@@ -246,9 +206,38 @@ RETRY:
 	    }
 	}
 	else{
-	    //if(((h(&target->_[loc].key, sizeof(Key_t)) % (size_t)pow(2, target->local_depth)) != pattern)
-	    if(((h(&target->_[loc].key, sizeof(Key_t)) >> (8*sizeof(key_hash)-target->local_depth)) != pattern)
-		|| (memcmp(&target->_[loc].key, &INVALID<Key_t>, sizeof(Key_t)) == 0)){
+	    if((((hash_funcs[0](&target->_[loc].key, sizeof(Key_t), f_seed) >> (8*sizeof(f_hash)-target_local_depth)) != pattern) ||
+			(memcmp(&target->_[loc].key, &INVALID<Key_t>, sizeof(Key_t)) == 0))){
+		memcpy(&target->_[loc].key, &key, sizeof(Key_t));
+		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
+		target->mutex.unlock();
+		return;
+	    }
+	}
+
+    }
+
+    size_t s_hash;
+    if constexpr(sizeof(Key_t) > 8)
+	s_hash = hash_funcs[2](key, sizeof(Key_t), s_seed);
+    else
+	s_hash = hash_funcs[2](&key, sizeof(Key_t), s_seed);
+    auto s_idx = (s_hash & kMask) * kNumPairPerCacheLine;
+
+    for(unsigned i=0; i<kNumPairPerCacheLine * kNumCacheLine; ++i){
+	auto loc = (s_idx + i) % Segment<Key_t>::kNumSlot;
+	if constexpr(sizeof(Key_t) > 8){
+	    if((((hash_funcs[0](target->_[loc].key, sizeof(Key_t), f_seed) >> (8*sizeof(f_hash)-target_local_depth)) != pattern) ||
+			(memcmp(target->_[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0))){
+		memcpy(target->_[loc].key, key, sizeof(Key_t));
+		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
+		target->mutex.unlock();
+		return;
+	    }
+	}
+	else{
+	    if((((hash_funcs[0](&target->_[loc].key, sizeof(Key_t), f_seed) >> (8*sizeof(f_hash)-target_local_depth)) != pattern) ||
+			(memcmp(&target->_[loc].key, &INVALID<Key_t>, sizeof(Key_t)) == 0))){
 		memcpy(&target->_[loc].key, &key, sizeof(Key_t));
 		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
 		target->mutex.unlock();
@@ -257,146 +246,275 @@ RETRY:
 	}
     }
 
-    Block<Key_t>** s = target->Split();
+    // COLLISION!!
+    /* need to split segment but release the exclusive lock first to avoid deadlock */
+
+    /* need to check whether the target segment has been split */
+    Segment<Key_t>** s = target->Split();
 
 DIR_RETRY:
-    if(target->local_depth == dir->global_depth){
-        if(!dir->suspend()){
+    /* need to double the directory */
+    if(target_local_depth == dir->depth){
+	if(!dir->suspend()){
 	    std::this_thread::yield();
 	    goto DIR_RETRY;
 	}
 
-	//x = (key_hash % dir->capacity);
-	x = (key_hash >> (8 * sizeof(key_hash) - dir->global_depth));
+	x = (f_hash >> (8*sizeof(f_hash) - dir->depth));
 	auto dir_old = dir;
-	auto blocks = dir->_;
-	auto _dir = new Directory<Key_t>(dir->global_depth+1);
-	for(int i=0; i<dir->capacity; i++){
-	    if(i == x){
-		 _dir->_[2*i] = s[0];
-		 _dir->_[2*i+1] = s[1];
+	auto d = dir->_;
+	auto _dir = new Directory<Key_t>(dir->depth+1);
+	for(unsigned i = 0; i < dir->capacity; ++i){
+	    if (i == x){
+		_dir->_[2*i] = s[0];
+		_dir->_[2*i+1] = s[1];
 	    }
 	    else{
-		 _dir->_[2*i] = blocks[i];
-		 _dir->_[2*i+1] = blocks[i];
+		_dir->_[2*i] = d[i];
+		_dir->_[2*i+1] = d[i];
 	    }
 	}
-	/*
-	memcpy(_dir->_, blocks, sizeof(Block<Key_t>*)*dir->capacity);
-	memcpy(_dir->_+dir->capacity,  blocks, sizeof(Block<Key_t>*)*dir->capacity);
-	_dir->_[x] = s[0];
-	_dir->_[x+dir->capacity] = s[1];
-	*/
 	dir = _dir;
-	delete dir_old;
 	s[0]->local_depth++;
 	s[0]->mutex.unlock();
     }
-    else{
-	if(!dir->acquire()){
-	    std::this_thread::yield();
-	    goto DIR_RETRY;
+    else{ // normal segment split
+	while(!dir->lock()){
+	    asm("nop");
 	}
 
-	x = (key_hash >> (8*sizeof(key_hash) - dir->global_depth));
-	if(dir->global_depth == target->local_depth + 1){
-	    if(x % 2 == 0){
-		dir->_[x] = s[0];
+	x = (f_hash >> (8 * sizeof(f_hash) - dir->depth));
+	if(dir->depth == target_local_depth + 1){
+	    if(x%2 == 0){
 		dir->_[x+1] = s[1];
 	    }
 	    else{
 		dir->_[x] = s[1];
-		dir->_[x-1] = s[0];
-	    }
+	    }	    
+	    dir->unlock();
+	    s[0]->local_depth++;
+	    /* release target segment exclusive lock */
+	    s[0]->mutex.unlock();
 	}
-	//x = (key_hash % dir->capacity);
-	//dir->LSBUpdate(s[0]->local_depth+1, dir->capacity, x, s);
 	else{
-	    int stride = pow(2, dir->global_depth - target->local_depth);
+	    int stride = pow(2, dir->depth - target_local_depth);
 	    auto loc = x - (x%stride);
-	    for(int i=0; i<stride/2; i++)
+	    for(int i=0; i<stride/2; ++i){
 		dir->_[loc+stride/2+i] = s[1];
-	    for(int i=0; i<stride/2; i++)
-		dir->_[loc+i] = s[0];
+	    }
+	    dir->unlock();
+	    s[0]->local_depth++;
+	    /* release target segment exclusive lock */
+	    s[0]->mutex.unlock();
 	}
-	dir->release();
-	s[0]->local_depth++;
-	s[0]->mutex.unlock();
     }
+    std::this_thread::yield();
     goto RETRY;
 }
 
-
+// TODO
 template <typename Key_t>
-void Directory<Key_t>::LSBUpdate(int local_depth, int dir_cap, int x, Block<Key_t>** s){
-    int depth_diff = global_depth - local_depth;
-    if(depth_diff == 0){
-	if((x % dir_cap) >= dir_cap/2){
-	    _[x-dir_cap/2] = s[0];
-	    _[x] = s[1];
+bool ExtendibleHash<Key_t>::Delete(Key_t& key) {
+	size_t f_hash;
+    if constexpr(sizeof(Key_t) > 8)
+	f_hash = hash_funcs[0](key, sizeof(Key_t), f_seed);
+    else
+	f_hash = hash_funcs[0](&key, sizeof(Key_t), f_seed);
+    auto f_idx = (f_hash & kMask) * kNumPairPerCacheLine;
+
+RETRY:
+    while(dir->sema < 0){
+	asm("nop");
+    }
+
+    auto x = (f_hash >> (8*sizeof(f_hash) - dir->depth)); 
+    auto target = dir->_[x];
+
+    if(!target){
+	std::this_thread::yield();
+	goto RETRY;
+    }
+
+    /* acquire segment shared lock */
+    if(!target->mutex.try_lock()){
+	std::this_thread::yield();
+	goto RETRY;
+    }
+
+    auto target_check = (f_hash >> (8*sizeof(f_hash) - dir->depth));
+    if(target != dir->_[target_check]){
+	target->mutex.unlock();
+	std::this_thread::yield();
+	goto RETRY;
+    }
+
+    for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
+	auto loc = (f_idx+i) % Segment<Key_t>::kNumSlot;
+	if constexpr(sizeof(Key_t)>8){
+	    if(memcmp(target->_[loc].key, key, sizeof(Key_t)) == 0){
+		    memcpy(target->_[loc].key, INVALID<Key_t>, sizeof(Key_t));
+		target->mutex.unlock();
+		return true;
+	    }
 	}
 	else{
-	    _[x] = s[0];
-	    _[x-dir_cap/2] = s[1];
+	    if(memcmp(&target->_[loc].key, &key, sizeof(Key_t)) == 0){
+		    memcpy(&target->_[loc].key, &INVALID<Key_t>, sizeof(Key_t));
+		target->mutex.unlock();
+		return true;
+	    }
 	}
     }
-    else{
-	if((x % dir_cap) >= dir_cap/2){
-	    LSBUpdate(local_depth+1, dir_cap/2, x-dir_cap/2, s);
-	    LSBUpdate(local_depth+1, dir_cap/2, x, s);
+
+    size_t s_hash;
+    if constexpr(sizeof(Key_t) > 8)
+	s_hash = hash_funcs[2](key, sizeof(Key_t), s_seed);
+    else
+	s_hash = hash_funcs[2](&key, sizeof(Key_t), s_seed);
+    auto s_idx = (s_hash & kMask) * kNumPairPerCacheLine;
+
+    for(unsigned i=0; i<kNumPairPerCacheLine * kNumCacheLine; ++i){
+	auto loc = (s_idx+i) % Segment<Key_t>::kNumSlot;
+	if constexpr(sizeof(Key_t)>8){
+	    if(memcmp(target->_[loc].key, key, sizeof(Key_t)) == 0){
+		    memcpy(target->_[loc].key, INVALID<Key_t>, sizeof(Key_t));
+		target->mutex.unlock();
+		return true; 
+	    }
 	}
 	else{
-	    LSBUpdate(local_depth+1, dir_cap/2, x, s);
-	    LSBUpdate(local_depth+1, dir_cap/2, x-dir_cap/2, s);
+	    if(memcmp(&target->_[loc].key, &key, sizeof(Key_t)) == 0){
+		    memcpy(&target->_[loc].key, &INVALID<Key_t>, sizeof(Key_t));
+		target->mutex.unlock();
+		return true; 
+	    }
 	}
+
     }
+
+    target->mutex.unlock();
+    return false; 
 }
 
 template <typename Key_t>
-char* ExtendibleHash<Key_t>::Get(Key_t& key){
-    size_t key_hash;
+char* ExtendibleHash<Key_t>::Get(Key_t& key) {
+    size_t f_hash;
     if constexpr(sizeof(Key_t) > 8)
-	key_hash = h(key, sizeof(Key_t));
+	f_hash = hash_funcs[0](key, sizeof(Key_t), f_seed);
     else
-	key_hash = h(&key, sizeof(Key_t));
+	f_hash = hash_funcs[0](&key, sizeof(Key_t), f_seed);
+    auto f_idx = (f_hash & kMask) * kNumPairPerCacheLine;
 
 RETRY:
-    auto x = (key_hash % dir->capacity);
+    while(dir->sema < 0){
+	asm("nop");
+    }
+
+    auto x = (f_hash >> (8*sizeof(f_hash) - dir->depth)); 
     auto target = dir->_[x];
+
+    if(!target){
+	std::this_thread::yield();
+	goto RETRY;
+    }
+
+    /* acquire segment shared lock */
     if(!target->mutex.try_lock_shared()){
 	std::this_thread::yield();
 	goto RETRY;
     }
 
-    auto target_check = (key_hash % dir->capacity);
+    auto target_check = (f_hash >> (8*sizeof(f_hash) - dir->depth));
     if(target != dir->_[target_check]){
+	target->mutex.unlock();
 	std::this_thread::yield();
 	goto RETRY;
     }
 
-    for(int i=0; i<Block<Key_t>::kNumSlot; i++){
-	if constexpr(sizeof(Key_t) > 8){
-	    if(memcmp(target->_[i].key, key, sizeof(Key_t)) == 0){
+    for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
+	auto loc = (f_idx+i) % Segment<Key_t>::kNumSlot;
+	if constexpr(sizeof(Key_t)>8){
+	    if(memcmp(target->_[loc].key, key, sizeof(Key_t)) == 0){
+		Value_t v = target->_[loc].value;
 		target->mutex.unlock();
-		return (char*)target->_[i].value;
+		return (char*)v;
 	    }
 	}
 	else{
-	    if(memcmp(&target->_[i].key, &key, sizeof(Key_t)) == 0){
+	    if(memcmp(&target->_[loc].key, &key, sizeof(Key_t)) == 0){
+		Value_t v = target->_[loc].value;
 		target->mutex.unlock();
-		return (char*)target->_[i].value;
+		return (char*)v;
 	    }
 	}
     }
+
+    size_t s_hash;
+    if constexpr(sizeof(Key_t) > 8)
+	s_hash = hash_funcs[2](key, sizeof(Key_t), s_seed);
+    else
+	s_hash = hash_funcs[2](&key, sizeof(Key_t), s_seed);
+    auto s_idx = (s_hash & kMask) * kNumPairPerCacheLine;
+
+    for(unsigned i=0; i<kNumPairPerCacheLine * kNumCacheLine; ++i){
+	auto loc = (s_idx+i) % Segment<Key_t>::kNumSlot;
+	if constexpr(sizeof(Key_t)>8){
+	    if(memcmp(target->_[loc].key, key, sizeof(Key_t)) == 0){
+		Value_t v = target->_[loc].value;
+		target->mutex.unlock();
+		return (char*)v;
+	    }
+	}
+	else{
+	    if(memcmp(&target->_[loc].key, &key, sizeof(Key_t)) == 0){
+		Value_t v = target->_[loc].value;
+		target->mutex.unlock();
+		return (char*)v;
+	    }
+	}
+
+    }
+
     target->mutex.unlock();
     return (char*)NONE;
 }
 
-	
 template <typename Key_t>
-bool ExtendibleHash<Key_t>::Delete(Key_t& key){
-    return true;
+double ExtendibleHash<Key_t>::Utilization(void){
+    size_t sum = 0;
+    size_t cnt = 0;
+    for(size_t i=0; i<dir->capacity; cnt++){
+	auto target = dir->_[i];
+	auto stride = pow(2, dir->depth - target->local_depth);
+	auto pattern = (i >> (dir->depth - target->local_depth));
+	for(unsigned j=0; j<Segment<Key_t>::kNumSlot; ++j){
+	    size_t key_hash;
+	    if constexpr(sizeof(Key_t) > 8){
+		key_hash = hash_funcs[0](target->_[j].key, sizeof(Key_t) ,f_seed);
+		if(((key_hash >> (8*sizeof(size_t) - target->local_depth)) == pattern) && (memcmp(target->_[j].key, INVALID<Key_t>, sizeof(Key_t)) != 0)){
+		    sum++;
+		}
+	    }
+	    else{
+		key_hash = hash_funcs[0](&target->_[j].key, sizeof(Key_t), f_seed);
+		if(((key_hash >> (8*sizeof(key_hash)-target->local_depth)) == pattern) && (memcmp(&target->_[j].key, &INVALID<Key_t>, sizeof(Key_t)) != 0)){
+		    sum++;
+		}
+	    }
+	}
+	i += stride;
+    }
+    return ((double)sum) / ((double)cnt * Segment<Key_t>::kNumSlot)*100.0;
 }
 
 
-#endif  // EXTENDIBLE_PTR_H_
+template <typename Key_t>
+size_t ExtendibleHash<Key_t>::Capacity(void) {
+    size_t cnt = 0;
+    for(int i=0; i<dir->capacity; cnt++){
+	auto target = dir->_[i];
+	auto stride = pow(2, dir->depth - target->local_depth);
+	i += stride;
+    }
+    return cnt * Segment<Key_t>::kNumSlot;
+}
