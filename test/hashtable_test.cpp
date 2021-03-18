@@ -13,7 +13,8 @@
 #include <algorithm>
 #include <iterator>
 
-using Key = char[64];
+//using Key = int64_t;
+using Key = char[32];
 using Value = int64_t; 
 
 int myrand(int i){
@@ -26,7 +27,7 @@ void generate_int_workloads(char* arr, int num){
 	input[i].key = i+1;
 	input[i].value = i+1;
     }
-    std::random_shuffle(arr, arr+num);
+    std::random_shuffle(input,input+num);
 }
 
 template <typename Key_t>
@@ -35,9 +36,8 @@ void generate_string_workloads(char* arr, int num){
 	char s[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 	for(int i=0; i<num; i++){
 		int j;
-		int key_len = rand() % sizeof(Key_t);
-		if(key_len < 2) key_len = 2;
-		for(j=0; j<key_len-1; j++)
+		int key_len = sizeof(Key_t); 
+		for(j=0; j<key_len-2; j++)
 			input[i].key[j] = s[rand() % (sizeof(s) -1)];
 		input[i].key[j] = 0;
 		input[i].value = i+1;
@@ -77,8 +77,9 @@ int main(int argc, char* argv[]){
 	int failed = 0;
 	for(int i=from; i<to; i++){
 	    auto ret = hashtable->Get(input[i].key);
-	    if((Value_t)ret != input[i].value)
+	    if((Value_t)ret != input[i].value){
 		failed++;
+	    }
 	}
 	fail[tid] = failed;
     };
@@ -103,7 +104,6 @@ int main(int argc, char* argv[]){
     int failedSearch = 0;
     for(auto& it: fail) failedSearch += it;
     std::cout << "failedSearhc: " << failedSearch << std::endl;
-
 
     return 0;
 }
