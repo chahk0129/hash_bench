@@ -31,6 +31,7 @@ class LinearProbingHash : public Hash <Key_t> {
     void Insert(Key_t&, Value_t);
     bool Delete(Key_t&);
     char* Get(Key_t&);
+    void findanyway(Key_t&);
     double Utilization(void){
 	size_t size = 0;
 	for(int i=0; i<capacity; i++){
@@ -81,7 +82,7 @@ RETRY:
 	asm("nop");
     }
 
-    auto loc = key_hash % capacity;
+    auto loc = key_hash;
     if(size < capacity*kResizingThreshold){
 	int i = 0;
 	while(i < capacity){
@@ -141,18 +142,12 @@ RETRY:
 	auto loc = (key_hash + i) % capacity;
 	unique_lock<shared_mutex> lock(mutex[loc/locksize]);
 	if constexpr(sizeof(Key_t) > 8){
-	    if(memcmp(dict[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0){
-		return false;
-	    }
 	    if(memcmp(dict[loc].key, key, sizeof(Key_t)) == 0){
 		memcpy(dict[loc].key, INVALID<Key_t>, sizeof(Key_t));
 		return true;
 	    }
 	}
 	else{
-	    if(memcmp(&dict[loc].key, &INVALID<Key_t>, sizeof(Key_t)) == 0){
-		return false;
-	    }
 	    if(memcmp(&dict[loc].key, &key, sizeof(Key_t)) == 0){
 		memcpy(&dict[loc].key, &INVALID<Key_t>, sizeof(Key_t));
 		return true;
@@ -178,14 +173,10 @@ RETRY:
 	auto loc = (key_hash + i) % capacity;
 	shared_lock<shared_mutex> lock(mutex[loc/locksize]);
 	if constexpr(sizeof(Key_t) > 8){
-	    if(memcmp(dict[loc].key, INVALID<Key_t>, sizeof(Key_t)) == 0)
-		return (char*)NONE;
 	    if(memcmp(dict[loc].key, key, sizeof(Key_t)) == 0)
 		return (char*)dict[loc].value;
 	}
 	else{
-	    if(memcmp(&dict[loc].key, &INVALID<Key_t>, sizeof(Key_t)) == 0)
-		return (char*)NONE;
 	    if(memcmp(&dict[loc].key, &key, sizeof(Key_t)) == 0)
 		return (char*)dict[loc].value;
 	}
@@ -201,7 +192,7 @@ size_t LinearProbingHash<Key_t>::getLocation(size_t hash_value, size_t _capacity
 	while(memcmp(_dict[cur].key, INVALID<Key_t>, sizeof(Key_t)) != 0){
 	    cur = (cur+1) % _capacity;
 	    i++;
-	    if(!(i < capacity))
+	    if(!(i < _capacity))
 		return -1;
 	}
 	return cur;
@@ -219,6 +210,7 @@ size_t LinearProbingHash<Key_t>::getLocation(size_t hash_value, size_t _capacity
 
 template <typename Key_t>
 void LinearProbingHash<Key_t>::resize(size_t _capacity){
+	cout << "RESIZE" << endl;
     unique_lock<shared_mutex>* lock[nlocks];
     for(int i=0; i<nlocks; i++){
 	lock[i] = new unique_lock<shared_mutex>(mutex[i]);
@@ -257,6 +249,25 @@ void LinearProbingHash<Key_t>::resize(size_t _capacity){
     }
     delete[] old_mutex;
     //delete[] tmp;
+}
+
+template <typename Key_t>
+void LinearProbingHash<Key_t>::findanyway(Key_t& key){
+	for(int i=0; i<capacity; i++){
+		if constexpr(sizeof(Key_t) > 8){
+			if(memcmp(dict[i].key, key, sizeof(Key_t)) == 0){
+				cout << "FOUND: " << dict[i].key << "\t" << key << endl;
+				return;
+			}
+		}
+		else{
+			if(memcmp(&dict[i].key, &key, sizeof(Key_t)) == 0){
+				cout << "FOUND: " << dict[i].key << "\t" << key << endl;
+				return;
+			}
+		}
+	}
+	cout << "NOT FOUND for key " << key << endl;
 }
 
 #endif  // LINEAR_HASH_H_
