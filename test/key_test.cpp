@@ -12,27 +12,30 @@ class KeyGeneratorTest{
 	~KeyGeneratorTest(){ }
 	void Setup(){
 	    seed_ = key_generator_t::get_seed();
-	    current_id_ = key_generator_t::current_id_;
+	    current_id_ = key_generator_t::current_id;
 	}
 
 	void Teardown(){
 	    key_generator_t::set_seed(seed_);
-	    key_generator_t::current_id_ = current_id_;
+	    key_generator_t::current_id = current_id_;
 	}
 
-	std::unique_ptr<key_generator_t>
-	Instantiate(size_t N, size_t size, const std::string& prefix = ""){
+	std::unique_ptr<key_generator_t> Instantiate(size_t N, size_t size, const std::string& prefix = ""){
 	    return std::make_unique<T>(N, size, prefix);
 	}
     private:
 	uint32_t seed_;
-	uint64_t current_id;
+	uint64_t current_id_;
 
 };
 
 using uniform = uniform_key_generator_t;
 using zipfian = zipfian_key_generator_t;
 using selfsimilar = selfsimilar_key_generator_t;
+
+template <typename T>
+struct Type{
+    using type__ = 
 enum type_{
     UNIFORM,
     ZIPFIAN,
@@ -40,16 +43,17 @@ enum type_{
 };
 
 void SimpleTest(int type, size_t N, size_t size, const std::string& prefix = ""){
-    char distribution_type[64];
+    KeyGeneratorTest<shared_ptr<uniform, zipfian, selfsimilar>> test;
+    char* test;
     if(type == UNIFORM)
-	strcpy(distribution_type, "uniform_key_generator_t");
+	test = reinterpret_cast<KeyGeneratorTest<uniform>>(test);
     else if(type == ZIPFIAN)
-	strcpy(distribution_type, "zipfian_key_generator_t");
+	test = reinterpret_cast<KeyGeneratorTest<zipfian>>(test);
     else
-	strcpy(distribution_type, "selfsimilar_key_generator_t");
+	test = reinterpret_cast<KeyGeneratorTest<selfsimilar>>(test);
 
-    KeyGeneratorTest<distribution_type> test;
-    auto gen = test->Instantiate(N, size, prefix);
+    //KeyGeneratorTest<distribution> test;
+    auto gen = test.Instantiate(N, size, prefix);
     assert(gen->keyspace() == N);
     assert(gen->size() == size);
     assert(gen->get_seed() == 0);
@@ -64,11 +68,11 @@ void SimpleTest(int type, size_t N, size_t size, const std::string& prefix = "")
 	assert(key_int == utils::multiplicative_hash<uint64_t>(i));
 
 	auto ret = key_space.insert(key_int);
-	assert(ret.second, true);
+	assert(ret.second == true);
     }
 
     // check that each generated key belongs to expected key space 
-    for(int i=0 i<1e3; i++){
+    for(int i=0; i<1e3; i++){
 	const char* key = gen->next(false); 
 	uint64_t key_int = *reinterpret_cast<const uint64_t*>(key);
 	assert(key_space.count(key_int) == 1);
