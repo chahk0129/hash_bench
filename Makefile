@@ -15,7 +15,7 @@ linear: index/linear_probing.h test/hashtable_test.cpp
 extendible: index/extendible_hash.h test/hashtable_test.cpp
 	$(CXX) $(CXXFLAGS) -o bin/ext test/hashtable_test.cpp $(LDLIBS) -DEXT
 
-key_gen: bench/key_generator.h test/key_test.cpp
+key_gen: bench/benchmark.h bench/selfsimilar_distribution.h bench/zipfian_distribution.h bench/key_generator.h test/key_test.cpp
 	$(CXX) $(CXXFLAGS) -o bin/key test/key_test.cpp $(LDLIBS)
 clean:
 	rm bin/*

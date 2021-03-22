@@ -11,9 +11,23 @@
 #include "bench/zipfian_distribution.h"
 #include "bench/utils.h"
 
+static constexpr size_t KEY_MAX = 128;
+
 class key_generator_t{
+    private:
+	static uint32_t _seed;
+	static char _buf[KEY_MAX];
+	const size_t _N;
+	const size_t _size;
+	const std::string _prefix;
+    
+    protected:
+	virtual uint64_t next_id() = 0;
+	static std::default_random_engine generator;
+    
     public:
-	static constexpr size_t KEY_MAX = 128;
+	static uint64_t current_id;
+
 	key_generator_t(size_t N, size_t size, const std::string& prefix = "")
 	    : _N(N), _size(size), _prefix(prefix) {
 	    memset(_buf, 0, KEY_MAX);
@@ -34,7 +48,7 @@ class key_generator_t{
 	    return _seed;
 	}
 
-	virtual const char* next(bool sequential = false) final{
+	const char* next(bool sequential = false) {
 	    char* ptr = &_buf[_prefix.size()];
 	    uint64_t id = sequential ? current_id++ : next_id();
 	    uint64_t hashed_id = utils::multiplicative_hash<uint64_t>(id);
@@ -56,55 +70,49 @@ class key_generator_t{
 	    return _buf;
 	}
 
-	static uint64_t current_id;
-    protected:
-	virtual uint64_t next_id() = 0;
-	static std::default_random_engine generator;
-
-    private:
-	static uint32_t _seed;
-	static char _buf[KEY_MAX];
-	const size_t _N;
-	const size_t _size;
-	const std::string _prefix;
 };
 
+std::default_random_engine key_generator_t::generator;
+uint32_t key_generator_t::_seed;
+char key_generator_t::_buf[KEY_MAX];
+uint64_t key_generator_t::current_id = 1;
+
 class uniform_key_generator_t final : public key_generator_t{
+    private:
+	std::uniform_int_distribution<uint64_t> dist;
     public:
 	uniform_key_generator_t(size_t N, size_t size, const std::string& prefix = "")
 	    : dist(1, N), key_generator_t(N, size, prefix) { }
     protected:
-	virtual uint64_t next_id() override{
+	uint64_t next_id() override{
 	    return dist(generator);
 	}
 
-    private:
-	std::uniform_int_distribution<uint64_t> dist;
 };
 
 class selfsimilar_key_generator_t final : public key_generator_t{
+    private:
+	selfsimilar_int_distribution<uint64_t> dist;
     public:
 	selfsimilar_key_generator_t(size_t N, size_t size, const std::string& prefix="", float skew = 0.2)
 	    : dist(1, N, skew), key_generator_t(N, size, prefix) { }
-
-	virtual uint64_t next_id() override{
+    protected:
+	uint64_t next_id() override{
 	    return dist(generator);
 	}
 
-    private:
-	selfsimilar_int_distribution<uint64_t> dist;
 };
 
 class zipfian_key_generator_t final : public key_generator_t{
+    private:
+	zipfian_int_distribution<uint64_t> dist;
     public:
 	zipfian_key_generator_t(size_t _N, size_t _size, const std::string& _prefix="", float skew = 0.99)
 	    : dist(1, _N, skew), key_generator_t(_N, _size, _prefix) { }
 
-	virtual uint64_t next_id() override{
+	uint64_t next_id() override{
 	    return dist(generator);
 	}
 
-    private:
-	zipfian_int_distribution<uint64_t> dist;
 };
 #endif
