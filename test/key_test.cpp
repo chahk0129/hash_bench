@@ -18,7 +18,8 @@ enum Type{
 void SimpleTest(distribution_t type, size_t N, size_t size, const std::string& prefix = ""){
     auto bench = new benchmark_t(type, N, size, prefix);
     assert(bench->key_generator_->keyspace() == N);
-    assert(bench->key_generator_->size() == size);
+    std::cout << "key_size: " << size << "\tbench_key_size: " << bench->key_generator_->size() << std::endl;
+    assert(bench->key_generator_->size() == size+prefix.size());
     assert(bench->key_generator_->get_seed() == 0);
     bench->key_generator_->set_seed(1729);
     assert(bench->key_generator_->get_seed() == 1729);
@@ -52,6 +53,7 @@ int main(int argc, char* argv[]){
     std::string prefix = "";
     if(argc > 4){
 	prefix = argv[4];
+	std::cout << "argv[4]: " << argv[4] << "\tprefix: " << prefix << std::endl;
     }
     SimpleTest(type, N, size, prefix);
     return 0;
