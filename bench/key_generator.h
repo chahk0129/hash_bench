@@ -62,7 +62,7 @@ class key_generator_t{
 	    else{
 		auto bytes_to_prepend = _size - sizeof(hashed_id);
 		if(bytes_to_prepend > 0){
-		    memset(ptr, 0, bytes_to_prepend);
+		    memset(ptr, 1, bytes_to_prepend);
 		    ptr += bytes_to_prepend;
 		}
 		memcpy(ptr, &hashed_id, sizeof(hashed_id));
