@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bench/key_generator.h"
+#include "bench/value_generator.h"
 
 #include <cstdint>
 #include <memory>
@@ -33,9 +34,11 @@ class benchmark_t{
 		    std::cerr << "[ERROR]: unknown distribution type" << std::endl;
 		    exit(0);
 	    }
+	    value_generator_ = new value_generator_t((const uint32_t)(sizeof(uint64_t)));
        	}
 	~benchmark_t(){ }
 
 	std::unique_ptr<key_generator_t> key_generator_;
+	value_generator_t* value_generator_;
     //private:
 };
