@@ -29,6 +29,7 @@ class LinearProbingHash : public Hash <Key_t> {
     }
 
     void Insert(Key_t&, Value_t);
+    bool Update(Key_t&, Value_t);
     bool Delete(Key_t&);
     char* Get(Key_t&);
     void findanyway(Key_t&);
@@ -124,6 +125,37 @@ RETRY:
 	}
     }
     goto RETRY;
+}
+
+template <typename Key_t>
+bool LinearProbingHash<Key_t>::Update(Key_t& key, Value_t value){
+    uint64_t key_hash;
+    if constexpr(sizeof(Key_t) > 8)
+	key_hash = h(key, sizeof(Key_t));
+    else
+	key_hash = h(&key, sizeof(Key_t));
+
+RETRY:
+    while(resizing_lock){
+	asm("nop");
+    }
+    for(int i=0; i<capacity; i++){
+	auto loc = (key_hash + i) % capacity;
+	unique_lock<shared_mutex> lock(mutex[loc/locksize]);
+	if constexpr(sizeof(Key_t) > 8){
+	    if(memcmp(dict[loc].key, key, sizeof(Key_t)) == 0){
+		memcpy(&dict[loc].value, &value, sizeof(Value_t));
+		return true;
+	    }
+	}
+	else{
+	    if(memcmp(&dict[loc].key, &key, sizeof(Key_t)) == 0){
+		memcpy(&dict[loc].value, &value, sizeof(Value_t));
+		return true;
+	    }
+	}
+    }
+    return false;
 }
 
 template <typename Key_t>

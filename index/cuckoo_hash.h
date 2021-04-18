@@ -38,6 +38,7 @@ class CuckooHash : public Hash<Key_t> {
     }
 
     void Insert(Key_t&, Value_t);
+    bool Update(Key_t&, Value_t);
     bool Delete(Key_t&);
     char* Get(Key_t&);
     double Utilization(void);
@@ -446,6 +447,63 @@ bool CuckooHash<Key_t>::execute_path(vector<pair<size_t,Key_t>>& path, Key_t& ke
   memcpy(&table[path[0].first].value, &value, sizeof(Value_t));
   return true;
 }
+
+template <typename Key_t>
+bool CuckooHash<Key_t>::Update(Key_t& key, Value_t value) {
+    size_t f_hash, s_hash;
+    if constexpr(sizeof(Key_t) > 8){
+        f_hash = hash_funcs[0](key, sizeof(Key_t), _seed);
+        s_hash = hash_funcs[1](key, sizeof(Key_t), _seed);
+    }
+    else{
+        f_hash = hash_funcs[0](&key, sizeof(Key_t), _seed);
+        s_hash = hash_funcs[1](&key, sizeof(Key_t), _seed);
+    }
+
+RETRY:
+    while(resizing_lock){
+        asm("nop");
+    }
+
+    auto f_idx = f_hash % capacity;
+    auto s_idx = s_hash % capacity;
+
+    { // try first hashing
+        unique_lock<shared_mutex> lock(mutex[f_idx/locksize]);
+        if constexpr(sizeof(Key_t) > 8){
+            if(memcmp(table[f_idx].key, key, sizeof(Key_t)) == 0){
+		memcpy(&table[f_idx].value, &value, sizeof(Value_t));
+                return true;
+            }
+        }
+        else{
+            if(memcmp(&table[f_idx].key, &key, sizeof(Key_t)) == 0){
+		memcpy(&table[f_idx].value, &value, sizeof(Value_t));
+                return true;
+            }
+        }
+    }
+
+    { // try second hashing
+        unique_lock<shared_mutex> lock(mutex[s_idx/locksize]);
+        if constexpr(sizeof(Key_t) > 8){
+            if(memcmp(table[s_idx].key, key, sizeof(Key_t)) == 0){
+		memcpy(&table[s_idx].value, &value, sizeof(Value_t));
+                return true;
+            }
+        }
+        else{
+            if(memcmp(&table[s_idx].key, &key, sizeof(Key_t)) == 0){
+		memcpy(&table[s_idx].value, &value, sizeof(Value_t));
+                return true;
+            }
+        }
+    }
+                                                                           
+    return false;
+}
+
+
 
 template <typename Key_t>
 bool CuckooHash<Key_t>::Delete(Key_t& key) {

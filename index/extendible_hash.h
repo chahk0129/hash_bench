@@ -101,6 +101,7 @@ class ExtendibleHash : public Hash<Key_t> {
 	}
 	~ExtendibleHash(void){ }
 	void Insert(Key_t&, Value_t);
+	bool Update(Key_t&, Value_t);
 	bool Delete(Key_t&);
 	char* Get(Key_t&);
 	double Utilization(void);
@@ -310,6 +311,89 @@ DIR_RETRY:
     }
     std::this_thread::yield();
     goto RETRY;
+}
+
+template <typename Key_t>
+bool ExtendibleHash<Key_t>::Update(Key_t& key, Value_t value) {
+	size_t f_hash;
+    if constexpr(sizeof(Key_t) > 8)
+	f_hash = hash_funcs[0](key, sizeof(Key_t), f_seed);
+    else
+	f_hash = hash_funcs[0](&key, sizeof(Key_t), f_seed);
+    auto f_idx = (f_hash & kMask) * kNumPairPerCacheLine;
+
+RETRY:
+    while(dir->sema < 0){
+	asm("nop");
+    }
+
+    auto x = (f_hash >> (8*sizeof(f_hash) - dir->depth)); 
+    auto target = dir->_[x];
+
+    if(!target){
+	std::this_thread::yield();
+	goto RETRY;
+    }
+
+    /* acquire segment shared lock */
+    if(!target->mutex.try_lock()){
+	std::this_thread::yield();
+	goto RETRY;
+    }
+
+    auto target_check = (f_hash >> (8*sizeof(f_hash) - dir->depth));
+    if(target != dir->_[target_check]){
+	target->mutex.unlock();
+	std::this_thread::yield();
+	goto RETRY;
+    }
+
+    for (unsigned i = 0; i < kNumPairPerCacheLine * kNumCacheLine; ++i) {
+	auto loc = (f_idx+i) % Segment<Key_t>::kNumSlot;
+	if constexpr(sizeof(Key_t)>8){
+	    if(memcmp(target->_[loc].key, key, sizeof(Key_t)) == 0){
+		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
+		target->mutex.unlock();
+		return true;
+	    }
+	}
+	else{
+	    if(memcmp(&target->_[loc].key, &key, sizeof(Key_t)) == 0){
+		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
+		target->mutex.unlock();
+		return true;
+	    }
+	}
+    }
+
+    size_t s_hash;
+    if constexpr(sizeof(Key_t) > 8)
+	s_hash = hash_funcs[2](key, sizeof(Key_t), s_seed);
+    else
+	s_hash = hash_funcs[2](&key, sizeof(Key_t), s_seed);
+    auto s_idx = (s_hash & kMask) * kNumPairPerCacheLine;
+
+    for(unsigned i=0; i<kNumPairPerCacheLine * kNumCacheLine; ++i){
+	auto loc = (s_idx+i) % Segment<Key_t>::kNumSlot;
+	if constexpr(sizeof(Key_t)>8){
+	    if(memcmp(target->_[loc].key, key, sizeof(Key_t)) == 0){
+		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
+		target->mutex.unlock();
+		return true; 
+	    }
+	}
+	else{
+	    if(memcmp(&target->_[loc].key, &key, sizeof(Key_t)) == 0){
+		memcpy(&target->_[loc].value, &value, sizeof(Value_t));
+		target->mutex.unlock();
+		return true; 
+	    }
+	}
+
+    }
+
+    target->mutex.unlock();
+    return false; 
 }
 
 // TODO
