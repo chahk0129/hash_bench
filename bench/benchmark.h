@@ -14,6 +14,7 @@ enum class distribution_t: uint8_t{
     ZIPFIAN = 2
 };
 
+template <typename Key_t>
 class benchmark_t{
     public:
 	benchmark_t(distribution_t type, size_t key_space, size_t key_size, const std::string& prefix = ""){
@@ -40,5 +41,7 @@ class benchmark_t{
 
 	std::unique_ptr<key_generator_t> key_generator_;
 	value_generator_t* value_generator_;
+
+	Hash<Key_t>* hashtable;
     //private:
 };
