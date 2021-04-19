@@ -2,7 +2,11 @@
 
 #include "bench/key_generator.h"
 #include "bench/value_generator.h"
+#include "index/interface.h"
+#include "util/pair.h"
+#include "util/config.h"
 
+#include <iostream>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -43,5 +47,9 @@ class benchmark_t{
 	value_generator_t* value_generator_;
 
 	Hash<Key_t>* hashtable;
+
+	size_t mem_usage(void);
+	inline void ycsb_load(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int* ops);
+	inline void ycsb_exec(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int num_threads, int* ops);
     //private:
 };
