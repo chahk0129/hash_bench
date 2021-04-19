@@ -9,7 +9,7 @@
 
 #include "util/hash.h"
 #include "util/pair.h"
-#include "util/interface.h"
+#include "index/interface.h"
 
 using namespace std;
 

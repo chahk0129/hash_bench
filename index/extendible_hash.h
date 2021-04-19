@@ -11,7 +11,7 @@
 #include <shared_mutex>
 #include "util/pair.h"
 #include "util/hash.h"
-#include "util/interface.h"
+#include "index/interface.h"
 
 #define f_seed 0xc70697UL
 #define s_seed 0xc70697UL
