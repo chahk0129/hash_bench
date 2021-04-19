@@ -10,17 +10,21 @@
 #include "index/cuckoo_hash.h"
 #include "index/linear_probing.h"
 #include "index/extendible_hash.h"
+using keytype = uint64_t;
+
+bool hyperthreading = true;
+bool numa = false;
 
 enum{
     TYPE_EXTENDIBLE_HASH,
-    TYPE_LINEAR_PROBING_HASH,
+    TYPE_LINEAR_HASH,
     TYPE_CUCKOO_HASH
 };
 
 enum{
     OP_INSERT,
     OP_READ,
-    OP_UPSERT,
+    OP_UPDATE,
     OP_DELETE
 };
 
@@ -37,11 +41,11 @@ enum{
 };
 
 template <typename Key_t>
-Hash<Key_t, Value_t>* getInstance(const int index_type, const uint64_t key_type){
+Hash<Key_t>* getInstance(const int index_type){
     const size_t initialTableSize = 1024 * 16;
     if(index_type == TYPE_EXTENDIBLE_HASH)
 	return new ExtendibleHash<Key_t>(initialTableSize/Segment<Key_t>::kNumSlot);
-    else if(index_type == TYPE_LINEAR_PROBING_HASH)
+    else if(index_type == TYPE_LINEAR_HASH)
 	return new LinearProbingHash<Key_t>(initialTableSize);
     else if(index_type == TYPE_CUCKOO_HASH)
 	return new CuckooHash<Key_t>(initialTableSize);
@@ -53,8 +57,16 @@ Hash<Key_t, Value_t>* getInstance(const int index_type, const uint64_t key_type)
 inline double get_now(void){
     struct timeval tv;
     gettimeofday(&tv, 0);
-    return tv.tv_sec + tv_tv_usec / 1000000.0;
+    return tv.tv_sec + tv.tv_usec / 1000000.0;
 }
+
+static int core_alloc_map_numa[] = {
+    0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26,
+    1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27,
+    28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54,
+    29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51, 53, 55
+};
+
 
 static int core_alloc_map_hyper[] = {
     0, 2, 4, 6, 8, 10, 12, 14, 16, 18,
@@ -69,7 +81,7 @@ inline void pin_core(size_t tid){
     cpu_set_t cpu_set;
     CPU_ZERO(&cpu_set);
 
-    size_t cord_id = tid % MAX_CORE_NUM;
+    size_t core_id = tid % MAX_CORE_NUM;
     if(hyperthreading)
 	CPU_SET(core_alloc_map_hyper[core_id], &cpu_set);
     else
@@ -84,7 +96,7 @@ inline void pin_core(size_t tid){
 }
 
 template <typename Fn, typename... Args>
-void start_threads(Hash<keytype, Value_t> *hash_p, uint64_t num_threads, Fn &&fn, Args &&...args) {
+void start_threads(Hash<keytype> *hash_p, uint64_t num_threads, Fn &&fn, Args &&...args) {
     std::vector<std::thread> thread_group;
 
     auto fn2 = [hash_p, &fn](uint64_t thread_id, Args ...args) {
