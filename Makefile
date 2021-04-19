@@ -6,6 +6,9 @@ LDLIBS := -lpthread -I.
 
 all: cuckoo linear extendible
 
+hash_bench: test/main.cpp
+	$(CXX) $(CXXFLAGS) -o bin/hash_bench test/main.cpp $(LDLIBS)
+
 cuckoo: index/cuckoo_hash.h test/hashtable_test.cpp
 	$(CXX) $(CXXFLAGS) -o bin/cuc test/hashtable_test.cpp $(LDLIBS)
 

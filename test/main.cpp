@@ -1,7 +1,10 @@
-#include "bench/bench.hpp"
+#include "bench/benchmark.hpp"
+#include <unistd.h>
+#include <sys/types.h>
 
 using Key_t = uint64_t;
 extern bool hyperthreading;
+extern bool numa;
 
 int main(int argc, char* argv[]){
     if(argc < 4){
@@ -83,10 +86,13 @@ int main(int argc, char* argv[]){
     int run_num = 50000000;
     benchmark_t<Key_t>* bench = new benchmark_t<Key_t>();
 
-    kvpair_t<Key_t>* init_kv = new kvpair_t<Key_t>[init_num];
-    kvpair_t<Key_t>* run_kv = new kvpair_t<Key_t>[run_num];
+    Pair<Key_t>* init_kv = new Pair<Key_t>[init_num];
+    Pair<Key_t>* run_kv = new Pair<Key_t>[run_num];
     int* ops = new int[run_num];
 
+    bench->ycsb_load(workload_type, index_type, init_kv, init_num, run_kv, run_num, ops);
+    bench->ycsb_exec(workload_type, index_type, init_kv, init_num, run_kv, run_num, num_threads, ops);
+}
 
 
 
