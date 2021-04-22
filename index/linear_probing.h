@@ -16,7 +16,7 @@ using namespace std;
 template <typename Key_t>
 class LinearProbingHash : public Hash <Key_t> {
   const float kResizingFactor = 2;
-  const float kResizingThreshold = 0.95;
+  const float kResizingThreshold = 0.90;
   public:
     LinearProbingHash(void): capacity{0}, dict{nullptr}{ }
     LinearProbingHash(size_t _capacity): capacity{_capacity}, dict{new Pair<Key_t>[capacity]} {
@@ -120,8 +120,15 @@ RETRY:
     }else{
 	auto unlocked = 0;
 	if(CAS(&resizing_lock, &unlocked, 1)){
+#ifdef BREAKDOWN
+	    clock_gettime(CLOCK_MONOTONIC, &t_start);
+#endif
 	    resize(capacity * kResizingFactor);
 	    resizing_lock = 0;
+#ifdef BREAKDOWN
+	    clock_gettime(CLOCK_MONOTONIC, &t_end);
+	    split_time += t_end.tv_nsec - t_start.tv_nsec + (t_end.tv_sec - t_start.tv_sec)*1000000000;
+#endif
 	}
     }
     goto RETRY;
@@ -242,7 +249,6 @@ size_t LinearProbingHash<Key_t>::getLocation(size_t hash_value, size_t _capacity
 
 template <typename Key_t>
 void LinearProbingHash<Key_t>::resize(size_t _capacity){
-	cout << "RESIZE" << endl;
     unique_lock<shared_mutex>* lock[nlocks];
     for(int i=0; i<nlocks; i++){
 	lock[i] = new unique_lock<shared_mutex>(mutex[i]);

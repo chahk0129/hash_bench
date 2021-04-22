@@ -129,6 +129,9 @@ RETRY:
   { // Failed to insert... Doing Cuckooing...
     int unlocked = 0;
     if (CAS(&resizing_lock, &unlocked, 1)) {
+#ifdef BREAKDOWN
+	clock_gettime(CLOCK_MONOTONIC, &t_start);
+#endif
 PATH_RETRY:
 	    if constexpr(sizeof(Key_t) > 8){
 		    auto path1 = find_path(f_idx, true);
@@ -165,10 +168,18 @@ PATH_RETRY:
 			    for (int i = 0; i < id; ++i) {
 				    delete lock[i];
 			    }
+#ifdef BREAKDOWN
+			    clock_gettime(CLOCK_MONOTONIC, &t_end);
+			    cuckoo_time += t_end.tv_nsec - t_start.tv_nsec + (t_end.tv_sec - t_start.tv_sec) * 1000000000;
+#endif
 			    return;
 		    } else {
 			    resize();
 			    resizing_lock = 0;
+#ifdef BREAKDOWN
+			    clock_gettime(CLOCK_MONOTONIC, &t_end);
+			    split_time += t_end.tv_nsec - t_start.tv_nsec + (t_end.tv_sec - t_start.tv_sec) * 1000000000;
+#endif
 		    }
 	    }
 	    else{
@@ -216,11 +227,19 @@ PATH_RETRY:
 			    for (int i = 0; i < id; ++i) {
 				    delete lock[i];
 			    }
+#ifdef BREAKDOWN
+			    clock_gettime(CLOCK_MONOTONIC, &t_end);
+			    cuckoo_time += t_end.tv_nsec - t_start.tv_nsec + (t_end.tv_sec - t_start.tv_sec) * 1000000000;
+#endif
 
 			    return;
 		    } else {
 			    resize();
 			    resizing_lock = 0;
+#ifdef BREAKDOWN
+			    clock_gettime(CLOCK_MONOTONIC, &t_end);
+			    split_time += t_end.tv_nsec - t_start.tv_nsec + (t_end.tv_sec - t_start.tv_sec) * 1000000000;
+#endif
 		    }
 	    }
     }

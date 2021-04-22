@@ -1,13 +1,15 @@
 .PHONY: all clean
 
 CXX := g++
-CXXFLAGS := -std=c++17 -g
+CXXFLAGS := -std=c++17 -O3 #-g
 LDLIBS := -lpthread -I. 
 
 all: cuckoo linear extendible
 
-hash_bench: test/main.cpp
-	$(CXX) $(CXXFLAGS) -o bin/hash_bench test/main.cpp $(LDLIBS)
+hash_bench: test/main.cpp pcm/pcm-memory.cpp pcm/pcm-numa.cpp pcm/libPCM.a
+	$(CXX) $(CXXFLAGS) -o bin/microbench test/main.cpp $(LDLIBS) pcm/libPCM.a -DMICROBENCH
+	$(CXX) $(CXXFLAGS) -o bin/breakdown test/main.cpp $(LDLIBS) pcm/libPCM.a -DBREAKDOWN -DMICROBENCH
+	$(CXX) $(CXXFLAGS) -o bin/ycsbbench test/main.cpp $(LDLIBS) pcm/libPCM.a
 
 cuckoo: index/cuckoo_hash.h test/hashtable_test.cpp
 	$(CXX) $(CXXFLAGS) -o bin/cuc test/hashtable_test.cpp $(LDLIBS)

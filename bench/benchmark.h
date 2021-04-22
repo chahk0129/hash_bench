@@ -5,6 +5,7 @@
 #include "index/interface.h"
 #include "util/pair.h"
 #include "util/config.h"
+#include "pcm/cpucounters.h"
 
 #include <iostream>
 #include <cstdint>
@@ -21,6 +22,18 @@ enum class distribution_t: uint8_t{
 template <typename Key_t>
 class benchmark_t{
     public:
+	benchmark_t(bool enable_pcm){
+	    if(enable_pcm){
+		pcm = PCM::getInstance();
+		auto status = pcm->program();
+		if(status != PCM::Success){
+		    std::cout << "Error opening PCM: " << status << std::endl;
+		    exit(0);
+		}
+	    }
+	    else
+		pcm = nullptr;
+	}
 	benchmark_t(distribution_t type, size_t key_space, size_t key_size, const std::string& prefix = ""){
 	    switch(type){
 		case distribution_t::UNIFORM:
@@ -47,9 +60,12 @@ class benchmark_t{
 	value_generator_t* value_generator_;
 
 	Hash<Key_t>* hashtable;
+	PCM* pcm;
 
 	size_t mem_usage(void);
+	inline void microbench(int index_type, Pair<Key_t>* init_kv, int init_num, bool insert_only);
 	inline void ycsb_load(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int* ops);
-	inline void ycsb_exec(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int num_threads, int* ops);
+	inline void ycsb_exec(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int num_threads, int* ops, bool pcm_nabled);
+	//inline void ycsb_exec(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int num_threads, int* ops, bool memory_bandwidth, bool numa);
     //private:
 };

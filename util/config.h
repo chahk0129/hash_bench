@@ -13,7 +13,6 @@
 using keytype = uint64_t;
 
 bool hyperthreading = true;
-bool numa = false;
 
 enum{
     TYPE_EXTENDIBLE_HASH,
@@ -42,7 +41,7 @@ enum{
 
 template <typename Key_t>
 Hash<Key_t>* getInstance(const int index_type){
-    const size_t initialTableSize = 1024 * 16;
+    const size_t initialTableSize = 1024*16;
     if(index_type == TYPE_EXTENDIBLE_HASH)
 	return new ExtendibleHash<Key_t>(initialTableSize/Segment<Key_t>::kNumSlot);
     else if(index_type == TYPE_LINEAR_HASH)
@@ -52,6 +51,18 @@ Hash<Key_t>* getInstance(const int index_type){
     else
 	fprintf(stderr, "unkown index type %d\n", index_type);
     return nullptr;
+}
+
+inline void clear_cache(void){
+    int* dummy = new int[1024*1024*256];
+    for(int i=0; i<1024*1024*256; i++){
+	dummy[i] = i;
+    }
+    for(int i=100; i<1024*1024*256-100; i++){
+	dummy[i] = dummy[i-rand()%100] + dummy[i+rand()%100];
+    }
+
+    delete[] dummy;
 }
 
 inline double get_now(void){

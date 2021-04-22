@@ -19,7 +19,7 @@
 const size_t kMask = 256-1;
 const size_t kShift = 8;
 const size_t kNumPairPerCacheLine = 4;
-const size_t kNumCacheLine = 8;
+const size_t kNumCacheLine = 256;
 
 using namespace std;
 
@@ -147,6 +147,7 @@ Segment<Key_t>** Segment<Key_t>::Split(void){
 
 	if(f_hash & pattern){
 	    if(!split[1]->Insert4split(_[i].key, _[i].value, (f_hash & kMask)*kNumPairPerCacheLine)){
+#ifdef S_HASH
 		size_t s_hash;
 		if constexpr(sizeof(Key_t) > 8)
 		    s_hash = hash_funcs[2](_[i].key, sizeof(Key_t), s_seed);
@@ -155,6 +156,9 @@ Segment<Key_t>** Segment<Key_t>::Split(void){
 		if(!split[1]->Insert4split(_[i].key, _[i].value, (s_hash & kMask)*kNumPairPerCacheLine)){
 		    cerr << "[" << __func__ << "]: something wrong -- need to adjust probing distance" << endl;
 		}
+#else
+		cerr << "[" << __func__ << "]: something wrong -- need to adjust probing distance" << endl;
+#endif
 	    }
 	}
     }
@@ -218,6 +222,7 @@ RETRY:
 
     }
 
+#ifdef S_HASH
     size_t s_hash;
     if constexpr(sizeof(Key_t) > 8)
 	s_hash = hash_funcs[2](key, sizeof(Key_t), s_seed);
@@ -246,11 +251,15 @@ RETRY:
 	    }
 	}
     }
+#endif
 
     // COLLISION!!
     /* need to split segment but release the exclusive lock first to avoid deadlock */
 
     /* need to check whether the target segment has been split */
+#ifdef BREAKDOWN
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
+#endif
     Segment<Key_t>** s = target->Split();
 
 DIR_RETRY:
@@ -309,6 +318,10 @@ DIR_RETRY:
 	    s[0]->mutex.unlock();
 	}
     }
+#ifdef BREAKDOWN
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
+    split_time += t_end.tv_nsec - t_start.tv_nsec + (t_end.tv_sec - t_start.tv_sec)*1000000000;
+#endif
     std::this_thread::yield();
     goto RETRY;
 }
@@ -366,6 +379,7 @@ RETRY:
 	}
     }
 
+#ifdef S_HASH
     size_t s_hash;
     if constexpr(sizeof(Key_t) > 8)
 	s_hash = hash_funcs[2](key, sizeof(Key_t), s_seed);
@@ -391,6 +405,7 @@ RETRY:
 	}
 
     }
+#endif
 
     target->mutex.unlock();
     return false; 
@@ -450,6 +465,7 @@ RETRY:
 	}
     }
 
+#ifdef S_HASH
     size_t s_hash;
     if constexpr(sizeof(Key_t) > 8)
 	s_hash = hash_funcs[2](key, sizeof(Key_t), s_seed);
@@ -475,6 +491,7 @@ RETRY:
 	}
 
     }
+#endif
 
     target->mutex.unlock();
     return false; 
@@ -533,6 +550,7 @@ RETRY:
 	}
     }
 
+#ifdef S_HASH
     size_t s_hash;
     if constexpr(sizeof(Key_t) > 8)
 	s_hash = hash_funcs[2](key, sizeof(Key_t), s_seed);
@@ -558,6 +576,7 @@ RETRY:
 	}
 
     }
+#endif
 
     target->mutex.unlock();
     return (char*)NONE;

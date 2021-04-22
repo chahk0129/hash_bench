@@ -1,4 +1,7 @@
 #include "bench/benchmark.h"
+//#include "pcm/pcm-memory.cpp"
+//#include "pcm/pcm-numa.cpp"
+
 #include <fstream>
 
 template <typename Key_t>
@@ -20,6 +23,73 @@ size_t benchmark_t<Key_t>::mem_usage(void){
     return rss * (4096 / 1024); // in KiB
 }
 
+
+template <typename Key_t>
+inline void benchmark_t<Key_t>::microbench(int index_type, Pair<Key_t>* init_kv, int init_num, bool insert_only){
+    Hash<Key_t>* hashtable = getInstance<Key_t>(index_type);
+    
+    for(int i=0; i<init_num; i++){
+	init_kv[i].key = i+1;
+	init_kv[i].value = i+1;
+    }
+    std::random_shuffle(init_kv, init_kv+init_num);
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for(int i=0; i<init_num; i++){
+	hashtable->Insert(init_kv[i].key, init_kv[i].value);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    uint64_t elapsed = end.tv_nsec - start.tv_nsec + (end.tv_sec - start.tv_sec)*1000000000;
+    uint64_t throughput = (uint64_t)init_num / (elapsed/1000.0) * 1000000;
+    std::cout << "\033[1;32m";
+    std::cout << "Insert Throughput(Ops/sec): " << throughput << std::endl;
+#ifdef BREAKDOWN
+    std::cout << "Elapsed time(usec): " << elapsed/1000.0 << "\033[0m" << std::endl;;
+    std::cout << "split_time(usec): " << split_time/1000.0 << std::endl;
+    std::cout << "cuckoo_time(usec): " << cuckoo_time/1000.0 << std::endl;
+    std::cout << "cuckoo_time(usec): " << cuckoo_time << std::endl;
+    std::cout << "traversal_time(usec): " << (elapsed - split_time - cuckoo_time)/1000.0 << std::endl;
+#endif
+    if(insert_only)
+	return;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for(int i=0; i<init_num; i++){
+	auto ret = hashtable->Get(init_kv[i].key);
+	assert((uint64_t)ret == init_kv[i].value);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    elapsed = end.tv_nsec - start.tv_nsec + (end.tv_sec - start.tv_sec)*1000000000;
+    throughput = (uint64_t)init_num / (elapsed/1000.0) * 1000000;
+    std::cout << "\033[1;32m";
+    std::cout << "Search Throughput(Ops/sec): " << throughput << "\033[0m" << std::endl;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for(int i=0; i<init_num/30; i++){
+	auto ret = hashtable->Update(init_kv[i].key, init_kv[i].value);
+	assert(ret);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    elapsed = end.tv_nsec - start.tv_nsec + (end.tv_sec - start.tv_sec)*1000000000;
+    throughput = (uint64_t)init_num/30 / (elapsed/1000.0) * 1000000;
+    std::cout << "\033[1;32m";
+    std::cout << "Update Throughput(Ops/sec): " << throughput << "\033[0m" << std::endl;
+
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for(int i=0; i<init_num/20; i++){
+	auto ret = hashtable->Delete(init_kv[i].key);
+	assert(ret);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    elapsed = end.tv_nsec - start.tv_nsec + (end.tv_sec - start.tv_sec)*1000000000;
+    throughput = (uint64_t)(init_num/20) / (elapsed/1000.0) * 1000000;
+    std::cout << "\033[1;32m";
+    std::cout << "Delete Throughput(Ops/sec): " << throughput << "\033[0m" << std::endl;
+
+
+}
+
+    
 template <typename Key_t>
 inline void benchmark_t<Key_t>::ycsb_load(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int* ops){
     std::string init_file;
@@ -113,7 +183,24 @@ inline void benchmark_t<Key_t>::ycsb_load(int workload_type, int index_type, Pai
 }
 
 template <typename Key_t>
-inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int num_threads, int* ops){
+inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int num_threads, int* ops, bool pcm_enabled){
+    /*
+    if(memory_bandwidth){
+	if(geteuid() != 0){
+	    fprintf(stderr, "Must be root user to measure memory bandwidth\n");
+	    exit(0);
+	}
+	PCM_memory::InitMemoryMonitor();
+    }
+
+    if(numa){
+	if(geteuid() != 0){
+	    fprintf(stderr, "Must be root user to measure NUMA operations\n");
+	    exit(0);
+	}
+	PCM_NUMA::InitNumaMonitor();
+    }*/
+
     Hash<Key_t>* hashtable = getInstance<Key_t>(index_type);
 
     std::vector<uint64_t> load_latency[num_threads];
@@ -144,14 +231,44 @@ inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pai
 	return;
     };
 
+    /*
+    if(memory_bandwidth)
+	PCM_memory::StartMemoryMonitor();
+
+    if(numa)
+	PCM_NUMA::StartNUMAMonitor();
+	*/
+    std::unique_ptr<SystemCounterState> before;
+    if(pcm_enabled){
+	before = std::make_unique<SystemCounterState>();
+	*before = getSystemCounterState();
+    }
     double start_time = get_now();
     start_threads(hashtable, num_threads, load_func, false);
     double end_time = get_now();
 
+    std::unique_ptr<SystemCounterState> after;
+    if(pcm_enabled){
+	after = std::make_unique<SystemCounterState>();
+	*after = getSystemCounterState();
+    }
+    /*
+    if(memory_bandwidth)
+	PCM_memory::EndMemoryMonitor();
+
+    if(numa)
+	PCM_NUMA::EndNUMAMonitor();
+	*/
     double throughput = init_num / (end_time - start_time) / 1000000; // MOps/sec
     std::cout << "\033[1;32m";
     std::cout << "Insert " << throughput << "\033[0m" << std::endl;
 
+    if(pcm_enabled){
+	std::cout << "PCM Metrics:\n"
+	    	  << "\tL3 misses: " << getL3CacheMisses(*before, *after) << "\n"
+		  << "\tReads(bytes): " << getBytesReadFromMC(*before, *after) << "\n"
+		  << "\tWrites(byes): " << getBytesWrittenToMC(*before, *after) << std::endl;
+    }
 #ifdef LATENCY
     std::vector<uint64_t> aggregated_load_latency;
     for(int i=0; i<num_threads; i++){
@@ -198,10 +315,32 @@ inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pai
 	return;
     };
 
+    /*
+    if(memory_bandwidth)
+	PCM_memory::StartMemoryMonitor();
+
+    if(numa)
+	PCM_NUMA::StartNUMAMonitor();
+    */
+    if(pcm_enabled){
+	*before = getSystemCounterState();
+    }
+
     start_time = get_now();
     start_threads(hashtable, num_threads, exec_func, false);
     end_time = get_now();
 
+    if(pcm_enabled){
+	*after = getSystemCounterState();
+    }
+
+    /*
+    if(memory_bandwidth)
+	PCM_memory::EndMemoryMonitor();
+
+    if(numa)
+	PCM_NUMA::EndNUMAMonitor();
+    */
     throughput = run_num / (end_time - start_time) / 1000000; // MOps/sec
     std::cout << "\033[1;31m";
     if(workload_type == WORKLOAD_A)
@@ -213,6 +352,12 @@ inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pai
     else if(workload_type == WORKLOAD_D)
 	std::cout << "Read/Update " << throughput << "\033[0m" << std::endl;
 
+    if(pcm_enabled){
+	std::cout << "PCM Metrics:\n"
+	    	  << "\tL3 misses: " << getL3CacheMisses(*before, *after) << "\n"
+		  << "\tReads(bytes): " << getBytesReadFromMC(*before, *after) << "\n"
+		  << "\tWrites(byes): " << getBytesWrittenToMC(*before, *after) << std::endl;
+    }
 #ifdef LATENCY
     std::vector<uint64_t> aggregated_exec_latency;
     for(int i=0; i<num_threads; i++){
