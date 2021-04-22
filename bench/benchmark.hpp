@@ -28,6 +28,9 @@ template <typename Key_t>
 inline void benchmark_t<Key_t>::microbench(int index_type, Pair<Key_t>* init_kv, int init_num, bool insert_only){
     Hash<Key_t>* hashtable = getInstance<Key_t>(index_type);
     
+    if constexpr(sizeof(Key_t) > 8){
+    }
+    else{
     for(int i=0; i<init_num; i++){
 	init_kv[i].key = i+1;
 	init_kv[i].value = i+1;
@@ -85,7 +88,7 @@ inline void benchmark_t<Key_t>::microbench(int index_type, Pair<Key_t>* init_kv,
     throughput = (uint64_t)(init_num/20) / (elapsed/1000.0) * 1000000;
     std::cout << "\033[1;32m";
     std::cout << "Delete Throughput(Ops/sec): " << throughput << "\033[0m" << std::endl;
-
+    }
 
 }
 
@@ -141,8 +144,11 @@ inline void benchmark_t<Key_t>::ycsb_load(int workload_type, int index_type, Pai
 	    fprintf(stderr, "Reading load file failed\n");
 	    exit(1);
 	}
-	init_kv[i].key = key;
-	init_kv[i].value = key;
+	if constexpr(sizeof(Key_t) > 8)
+	    memcpy(init_kv[i].key, key, sizeof(Key_t));
+	else
+	    init_kv[i].key = key;
+	init_kv[i].value = base + rand();
     }
 
     infile_load.close();
@@ -161,17 +167,26 @@ inline void benchmark_t<Key_t>::ycsb_load(int workload_type, int index_type, Pai
 	infile_txn >> op >> key;
 	if(op.compare(insert) == 0){
 	    ops[i] = OP_INSERT;
-	    run_kv[i].key = key;
-	    run_kv[i].value = key;
+	    if constexpr(sizeof(Key_t) > 8)
+		memcpy(run_kv[i].key, key, sizeof(Key_t));
+	    else
+		run_kv[i].key = key;
+	    run_kv[i].value = (uint64_t)&run_kv[i];
 	}
 	else if(op.compare(read) == 0){
 	    ops[i] = OP_READ;
-	    run_kv[i].key = key;
+	    if constexpr(sizeof(Key_t) > 8)
+		memcpy(run_kv[i].key, key, sizeof(Key_t));
+	    else
+		run_kv[i].key = key;
 	}
 	else if(op.compare(update) == 0){
 	    ops[i] = OP_UPDATE;
-	    run_kv[i].key = key;
-	    run_kv[i].value = key;
+	    if constexpr(sizeof(Key_t) > 8)
+		memcpy(run_kv[i].key, key, sizeof(Key_t));
+	    else
+		run_kv[i].key = key;
+	    run_kv[i].value = (uint64_t)&run_kv[i];
 	}
 	else{
 	    fprintf(stderr, "unknown operation type\n");
@@ -300,11 +315,9 @@ inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pai
 	    }
 	    else if(ops[i] == OP_READ){
 		auto ret = hashtable->Get(run_kv[i].key);
-		assert((Key_t)ret == run_kv[i].key);
 	    }
 	    else if(ops[i] == OP_UPDATE){
 		auto ret = hashtable->Update(run_kv[i].key, run_kv[i].value);
-		assert(ret);
 	    }
 #ifdef LATENCY
 	    clock_gettime(CLOCK_MONOTONIC, &end);

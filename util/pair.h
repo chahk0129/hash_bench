@@ -25,6 +25,7 @@ struct Pair{
 	    memcpy(&key, &_key, sizeof(Key_t));
 	memcpy(&value, &_value, sizeof(Value_t));
     }
+
 };
 
 template <typename Key_t>

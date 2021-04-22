@@ -6,10 +6,13 @@ LDLIBS := -lpthread -I.
 
 all: cuckoo linear extendible
 
-hash_bench: test/main.cpp pcm/pcm-memory.cpp pcm/pcm-numa.cpp pcm/libPCM.a
-	$(CXX) $(CXXFLAGS) -o bin/microbench test/main.cpp $(LDLIBS) pcm/libPCM.a -DMICROBENCH
-	$(CXX) $(CXXFLAGS) -o bin/breakdown test/main.cpp $(LDLIBS) pcm/libPCM.a -DBREAKDOWN -DMICROBENCH
-	$(CXX) $(CXXFLAGS) -o bin/ycsbbench test/main.cpp $(LDLIBS) pcm/libPCM.a
+hash_bench: test/integer.cpp test/string.cpp pcm/pcm-memory.cpp pcm/pcm-numa.cpp pcm/libPCM.a
+	$(CXX) $(CXXFLAGS) -o bin/int_microbench test/integer.cpp $(LDLIBS) pcm/libPCM.a -DMICROBENCH
+	$(CXX) $(CXXFLAGS) -o bin/int_breakdown test/integer.cpp $(LDLIBS) pcm/libPCM.a -DBREAKDOWN -DMICROBENCH
+	$(CXX) $(CXXFLAGS) -o bin/int_ycsbbench test/integer.cpp $(LDLIBS) pcm/libPCM.a
+	$(CXX) $(CXXFLAGS) -o bin/str_microbench test/string.cpp $(LDLIBS) pcm/libPCM.a -DMICROBENCH
+	$(CXX) $(CXXFLAGS) -o bin/str_breakdown test/string.cpp $(LDLIBS) pcm/libPCM.a -DBREAKDOWN -DMICROBENCH
+	$(CXX) $(CXXFLAGS) -o bin/str_ycsbbench test/string.cpp $(LDLIBS) pcm/libPCM.a
 
 cuckoo: index/cuckoo_hash.h test/hashtable_test.cpp
 	$(CXX) $(CXXFLAGS) -o bin/cuc test/hashtable_test.cpp $(LDLIBS)

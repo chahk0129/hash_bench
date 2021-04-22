@@ -106,8 +106,8 @@ inline void pin_core(size_t tid){
     return;
 }
 
-template <typename Fn, typename... Args>
-void start_threads(Hash<keytype> *hash_p, uint64_t num_threads, Fn &&fn, Args &&...args) {
+template <typename Key_t, typename Fn, typename... Args>
+void start_threads(Hash<Key_t> *hash_p, uint64_t num_threads, Fn &&fn, Args &&...args) {
     std::vector<std::thread> thread_group;
 
     auto fn2 = [hash_p, &fn](uint64_t thread_id, Args ...args) {
