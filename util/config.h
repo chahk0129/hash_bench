@@ -39,6 +39,7 @@ enum{
     STRING_KEY
 };
 
+
 template <typename Key_t>
 Hash<Key_t>* getInstance(const int index_type){
     const size_t initialTableSize = 1024*16;

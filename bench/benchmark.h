@@ -64,6 +64,7 @@ class benchmark_t{
 
 	size_t mem_usage(void);
 	inline void microbench(int index_type, Pair<Key_t>* init_kv, int init_num, bool insert_only);
+	inline void latency(int index_type, Pair<Key_t>* init_kv, int init_num, int num_threads);
 	inline void ycsb_load(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int* ops);
 	inline void ycsb_exec(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int num_threads, int* ops, bool pcm_nabled);
 	//inline void ycsb_exec(int workload_type, int index_type, Pair<Key_t>* init_kv, int init_num, Pair<Key_t>* run_kv, int run_num, int num_threads, int* ops, bool memory_bandwidth, bool numa);

@@ -40,5 +40,26 @@ void invalid_initialize(void){
     else
 	memset(&INVALID<Key_t>, 0, sizeof(Key_t));
 }
+
+template <typename Key_t>
+void gen_input(Pair<Key_t>* arr, int num){
+    if constexpr(sizeof(Key_t) > 8){
+	char s[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+	for(int i=0; i<num; i++){
+	    int j;
+	    for(j=0; j<sizeof(Key_t)-1; j++)
+		arr[i].key[j] = s[rand() % sizeof(s)-1];
+	    arr[i].key[j] = 0;
+	    arr[i].value = i+1;
+	}
+    }
+    else{
+	for(int i=0; i<num; i++){
+	    arr[i].key = i+1;
+	    arr[i].value = i+1;
+	}
+    }
+}
+		
 #endif
 

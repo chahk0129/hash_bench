@@ -19,7 +19,9 @@ int main(int argc, char* argv[]){
 	std::cout << "Usage: " << std::endl;
 	std::cout << "1. index type: ext, cuc, lin" << std::endl;
 	std::cout << "2. numData" << std::endl;
-	std::cout << "3. insert-only" << std::endl;
+	std::cout << "3. numThreads" << std::endl;
+	std::cout << "4. runmode: 1(microbench), 2(latency)" << std::endl;
+	std::cout << "5. insert-only" << std::endl;
 	return 1;
     }
 
@@ -36,14 +38,19 @@ int main(int argc, char* argv[]){
     }
 
     int init_num = atoi(argv[2]);
-    if(argc > 3){
-    	int insert_only_ = atoi(argv[3]);
+    int num_threads = atoi(argv[3]);
+    int mode = atoi(argv[4]);
+    if(argc > 5){
+    	int insert_only_ = atoi(argv[5]);
     	if(insert_only_ > 0) insert_only = true;
     }
     benchmark_t<Key_t>* bench = new benchmark_t<Key_t>(pcm_enabled);
 
     Pair<Key_t>* init_kv = new Pair<Key_t>[init_num];
-    bench->microbench(index_type, init_kv, init_num, insert_only);
+    if(mode == 1)
+	bench->microbench(index_type, init_kv, init_num, insert_only);
+    else
+	bench->latency(index_type, init_kv, init_num, num_threads);
     return 0;
 
 #else

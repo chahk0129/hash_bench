@@ -23,18 +23,58 @@ size_t benchmark_t<Key_t>::mem_usage(void){
     return rss * (4096 / 1024); // in KiB
 }
 
+template <typename Key_t>
+inline void benchmark_t<Key_t>::latency(int index_type, Pair<Key_t>* init_kv, int init_num, int num_threads){
+    Hash<Key_t>* hashtable = getInstance<Key_t>(index_type);
+    gen_input(init_kv, init_num);
+    std::random_shuffle(init_kv, init_kv+init_num);
+    
+    std::vector<std::thread> threads;
+    std::vector<uint64_t> latencies[num_threads];
+
+    auto latency_func = [&hashtable, &init_kv, init_num, num_threads, &latencies](int thread_id, bool){
+	size_t chunk = init_num / num_threads;
+	size_t from = chunk * thread_id;
+	size_t to = chunk * (thread_id+1);
+
+	struct timespec start, end;
+	uint64_t elapsed;
+	for(int i=from; i<to; i++){
+	    clock_gettime(CLOCK_MONOTONIC, &start);
+	    hashtable->Insert(init_kv[i].key, init_kv[i].value);
+	    clock_gettime(CLOCK_MONOTONIC, &end);
+	    elapsed = end.tv_nsec - start.tv_nsec + 1000000000*(end.tv_sec - start.tv_sec);
+	    latencies[thread_id].push_back(elapsed);
+	}
+	return;
+    };
+
+    start_threads(hashtable, num_threads, latency_func, false);
+
+    std::vector<uint64_t> aggregated_load_latency;
+    for(int i=0; i<num_threads; i++){
+	if(!latencies[i].empty()){
+	    for(auto it=latencies[i].begin(); it!=latencies[i].end(); it++)
+		aggregated_load_latency.push_back(*it);
+	}
+    }
+    std::sort(aggregated_load_latency.begin(), aggregated_load_latency.end());
+    std::cout << "Tail latency for load: " << aggregated_load_latency.back()/1000 << " usec" << std::endl;
+}
 
 template <typename Key_t>
 inline void benchmark_t<Key_t>::microbench(int index_type, Pair<Key_t>* init_kv, int init_num, bool insert_only){
     Hash<Key_t>* hashtable = getInstance<Key_t>(index_type);
-    
+    gen_input(init_kv, init_num);
+    /*
     if constexpr(sizeof(Key_t) > 8){
     }
     else{
-    for(int i=0; i<init_num; i++){
-	init_kv[i].key = i+1;
-	init_kv[i].value = i+1;
-    }
+	for(int i=0; i<init_num; i++){
+	    init_kv[i].key = i+1;
+	    init_kv[i].value = i+1;
+	}
+    }*/
     std::random_shuffle(init_kv, init_kv+init_num);
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -88,8 +128,6 @@ inline void benchmark_t<Key_t>::microbench(int index_type, Pair<Key_t>* init_kv,
     throughput = (uint64_t)(init_num/20) / (elapsed/1000.0) * 1000000;
     std::cout << "\033[1;32m";
     std::cout << "Delete Throughput(Ops/sec): " << throughput << "\033[0m" << std::endl;
-    }
-
 }
 
     
@@ -218,30 +256,14 @@ inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pai
 
     Hash<Key_t>* hashtable = getInstance<Key_t>(index_type);
 
-    std::vector<uint64_t> load_latency[num_threads];
-    std::vector<uint64_t> exec_latency[num_threads];
-
-    auto load_func = [&hashtable, &init_kv, init_num, num_threads, &load_latency](uint64_t thread_id, bool){
+    auto load_func = [&hashtable, &init_kv, init_num, num_threads](uint64_t thread_id, bool){
 	size_t total_num = init_num;
 	size_t chunk_size = total_num / num_threads;
 	size_t from = chunk_size * thread_id;
 	size_t to = chunk_size * (thread_id+1);
-#ifdef LATENCY
-	struct timespec start, end;
-	uint64_t elapsed;
-#endif
 
 	for(size_t i=from; i<to; i++){
-#ifdef LATENCY
-	    clock_gettime(CLOCK_MONOTONIC, &start);
-#endif
 	    hashtable->Insert(init_kv[i].key, init_kv[i].value);
-#ifdef LATENCY
-	    clock_gettime(CLOCK_MONOTONIC, &end);
-	    elapsed = end.tv_nsec - start.tv_nsec + 1000000000*(end.tv_sec - start.tv_sec);
-	    load_latency[thread_id].push_back(elapsed);
-#endif
-
 	}
 	return;
     };
@@ -284,32 +306,14 @@ inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pai
 		  << "\tReads(bytes): " << getBytesReadFromMC(*before, *after) << "\n"
 		  << "\tWrites(byes): " << getBytesWrittenToMC(*before, *after) << std::endl;
     }
-#ifdef LATENCY
-    std::vector<uint64_t> aggregated_load_latency;
-    for(int i=0; i<num_threads; i++){
-	if(!load_latency[i].empty()){
-	    for(auto it=load_latency[i].begin(); it!=load_latency[i].end(); it++)
-		aggregated_load_latency.push_back(*it);
-	}
-    }
-    std::sort(aggregated_load_latency.begin(), aggregated_load_latency.end());
-    std::cout << "Tail latency for load: " << aggregated_load_latency.back()/1000 << " usec" << std::endl;
-#endif
 
-    auto exec_func = [&hashtable, &run_kv, run_num, &ops, num_threads, &exec_latency](uint64_t thread_id, bool){
+    auto exec_func = [&hashtable, &run_kv, run_num, &ops, num_threads](uint64_t thread_id, bool){
 	size_t total_num = run_num;
 	size_t chunk_size = total_num / num_threads;
 	size_t from = chunk_size * thread_id;
 	size_t to = chunk_size * (thread_id+1);
-#ifdef LATENCY
-	struct timespec start, end;
-	uint64_t elapsed;
-#endif
 
 	for(size_t i=from; i<to; i++){
-#ifdef LATENCY
-	    clock_gettime(CLOCK_MONOTONIC, &start);
-#endif
 	    if(ops[i] == OP_INSERT){
 		hashtable->Insert(run_kv[i].key, run_kv[i].value);
 	    }
@@ -319,11 +323,6 @@ inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pai
 	    else if(ops[i] == OP_UPDATE){
 		auto ret = hashtable->Update(run_kv[i].key, run_kv[i].value);
 	    }
-#ifdef LATENCY
-	    clock_gettime(CLOCK_MONOTONIC, &end);
-	    elapsed = end.tv_nsec - start.tv_nsec + 1000000000*(end.tv_sec - start.tv_sec);
-	    exec_latency[thread_id].push_back(elapsed);
-#endif
 	}
 	return;
     };
@@ -371,18 +370,6 @@ inline void benchmark_t<Key_t>::ycsb_exec(int workload_type, int index_type, Pai
 		  << "\tReads(bytes): " << getBytesReadFromMC(*before, *after) << "\n"
 		  << "\tWrites(byes): " << getBytesWrittenToMC(*before, *after) << std::endl;
     }
-#ifdef LATENCY
-    std::vector<uint64_t> aggregated_exec_latency;
-    for(int i=0; i<num_threads; i++){
-	if(!exec_latency[i].empty()){
-	    for(auto it=exec_latency[i].begin(); it!=exec_latency[i].end(); it++)
-		aggregated_exec_latency.push_back(*it);
-	}
-    }
-    std::sort(aggregated_exec_latency.begin(), aggregated_exec_latency.end());
-    std::cout << "Tail latency for exec: " << aggregated_exec_latency.back()/1000 << " usec" << std::endl;
-#endif
-
 }
 
 
