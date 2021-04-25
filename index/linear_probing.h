@@ -16,13 +16,14 @@ using namespace std;
 template <typename Key_t>
 class LinearProbingHash : public Hash <Key_t> {
   const float kResizingFactor = 2;
-  const float kResizingThreshold = 0.90;
+  const float kResizingThreshold = 0.95;
   public:
     LinearProbingHash(void): capacity{0}, dict{nullptr}{ }
     LinearProbingHash(size_t _capacity): capacity{_capacity}, dict{new Pair<Key_t>[capacity]} {
 	locksize = 256;
 	nlocks = capacity / locksize + 1;
 	mutex = new shared_mutex[nlocks];
+	invalid_initialize<Key_t>();
     }
     ~LinearProbingHash(void){
 	if(dict != nullptr) delete[] dict;
@@ -32,7 +33,7 @@ class LinearProbingHash : public Hash <Key_t> {
     bool Update(Key_t&, Value_t);
     bool Delete(Key_t&);
     char* Get(Key_t&);
-    void findanyway(Key_t&);
+    void FindAnyway(Key_t&);
     double Utilization(void){
 	size_t size = 0;
 	for(int i=0; i<capacity; i++){
@@ -212,12 +213,14 @@ RETRY:
 	auto loc = (key_hash + i) % capacity;
 	shared_lock<shared_mutex> lock(mutex[loc/locksize]);
 	if constexpr(sizeof(Key_t) > 8){
-	    if(memcmp(dict[loc].key, key, sizeof(Key_t)) == 0)
+	    if(memcmp(dict[loc].key, key, sizeof(Key_t)) == 0){
 		return (char*)dict[loc].value;
+	    }
 	}
 	else{
-	    if(memcmp(&dict[loc].key, &key, sizeof(Key_t)) == 0)
+	    if(memcmp(&dict[loc].key, &key, sizeof(Key_t)) == 0){
 		return (char*)dict[loc].value;
+	    }
 	}
     }
     return (char*)NONE;
@@ -290,17 +293,17 @@ void LinearProbingHash<Key_t>::resize(size_t _capacity){
 }
 
 template <typename Key_t>
-void LinearProbingHash<Key_t>::findanyway(Key_t& key){
+void LinearProbingHash<Key_t>::FindAnyway(Key_t& key){
 	for(int i=0; i<capacity; i++){
 		if constexpr(sizeof(Key_t) > 8){
 			if(memcmp(dict[i].key, key, sizeof(Key_t)) == 0){
-				cout << "FOUND: " << dict[i].key << "\t" << key << endl;
+				//cout << "FOUND: " << dict[i].key << "\t" << key << endl;
 				return;
 			}
 		}
 		else{
 			if(memcmp(&dict[i].key, &key, sizeof(Key_t)) == 0){
-				cout << "FOUND: " << dict[i].key << "\t" << key << endl;
+				//cout << "FOUND: " << dict[i].key << "\t" << key << endl;
 				return;
 			}
 		}

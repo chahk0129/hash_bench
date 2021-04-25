@@ -16,9 +16,10 @@ using namespace std;
 template <typename Key_t>
 class CuckooHash : public Hash<Key_t> {
   size_t _seed = 0xc70f6907UL;
-  const size_t kCuckooThreshold = 16;
+  const size_t kCuckooThreshold = 512;
   const size_t kNumHash = 2;
-  const float kResizingFactor = 2;
+  const float kResizingFactor = 1.2;
+  //const float kResizingFactor = 2;
   const size_t kMaxGrows = 128;
 
   public:
@@ -43,6 +44,7 @@ class CuckooHash : public Hash<Key_t> {
     char* Get(Key_t&);
     double Utilization(void);
     size_t Capacity(void){ return capacity;} 
+    void FindAnyway(Key_t&){ }
 
   private:
     bool insert4resize(Key_t&, Value_t);

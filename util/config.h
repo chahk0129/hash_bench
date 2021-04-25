@@ -39,6 +39,43 @@ enum{
     STRING_KEY
 };
 
+template <std::size_t keySize>
+class GenericKey {
+    public:
+	char data[keySize];
+    public:
+	inline void setFromString(std::string key) {
+	    memset(data, 0, keySize);
+	    if(key.size() >= keySize) {
+		memcpy(data, key.c_str(), keySize - 1);
+		data[keySize - 1] = '\0';
+	    } else {
+		strcpy(data, key.c_str());
+	    }
+
+	    return;
+	}
+
+	// Constructor - Fills it with 0x00
+	// This is for the skiplist to initialize an empty node
+	GenericKey(int) { memset(data, 0x00, keySize); }
+	GenericKey() { memset(data, 0x00, keySize); }
+	// Copy constructor
+	GenericKey(const GenericKey &other) { memcpy(data, other.data, keySize); }
+	inline GenericKey &operator=(const GenericKey &other) {
+	    memcpy(data, other.data, keySize);
+	    return *this;
+	}
+
+	inline bool operator<(const GenericKey<keySize> &other) { return strcmp(data, other.data) < 0; }
+	inline bool operator>(const GenericKey<keySize> &other) { return strcmp(data, other.data) > 0; }
+	inline bool operator==(const GenericKey<keySize> &other) { return strcmp(data, other.data) == 0; }
+	// Derived operators
+	inline bool operator!=(const GenericKey<keySize> &other) { return !(*this == other); }
+	inline bool operator<=(const GenericKey<keySize> &other) { return !(*this > other); }
+	inline bool operator>=(const GenericKey<keySize> &other) { return !(*this < other); }
+};
+
 
 template <typename Key_t>
 Hash<Key_t>* getInstance(const int index_type){
@@ -55,6 +92,7 @@ Hash<Key_t>* getInstance(const int index_type){
 }
 
 inline void clear_cache(void){
+#ifndef DEBUG
     int* dummy = new int[1024*1024*256];
     for(int i=0; i<1024*1024*256; i++){
 	dummy[i] = i;
@@ -64,6 +102,7 @@ inline void clear_cache(void){
     }
 
     delete[] dummy;
+#endif
 }
 
 inline double get_now(void){

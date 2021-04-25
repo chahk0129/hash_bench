@@ -22,6 +22,7 @@ class Hash {
     virtual char* Get(Key_t&) = 0;
     virtual double Utilization(void) = 0;
     virtual size_t Capacity(void) = 0;
+    virtual void FindAnyway(Key_t&) = 0;
 };
 
 

@@ -20,7 +20,7 @@ int main(int argc, char* argv[]){
 	std::cout << "1. index type: ext, cuc, lin" << std::endl;
 	std::cout << "2. numData" << std::endl;
 	std::cout << "3. numThreads" << std::endl;
-	std::cout << "4. runmode: 1(microbench), 2(latency)" << std::endl;
+	std::cout << "4. runmode: 1(microbench), 2(latency) 3(mixed) 4(util)" << std::endl;
 	std::cout << "5. insert-only" << std::endl;
 	return 1;
     }
@@ -49,8 +49,12 @@ int main(int argc, char* argv[]){
     Pair<Key_t>* init_kv = new Pair<Key_t>[init_num];
     if(mode == 1)
 	bench->microbench(index_type, init_kv, init_num, insert_only);
-    else
+    else if(mode == 2)
 	bench->latency(index_type, init_kv, init_num, num_threads);
+    else if(mode == 3)
+	bench->mixed(index_type, init_kv, init_num, num_threads);
+    else
+	bench->utilization(index_type, init_kv, init_num);
     return 0;
 
 #else
@@ -74,7 +78,7 @@ int main(int argc, char* argv[]){
 	workload_type = WORKLOAD_B;
     else if(strcmp(argv[1], "c") == 0)
 	workload_type = WORKLOAD_C;
-    else if(strcmp(argv[1], "D") == 0)
+    else if(strcmp(argv[1], "d") == 0)
 	workload_type = WORKLOAD_D;
     else{
 	fprintf(stderr, "unknown workload type %s\n", argv[1]);

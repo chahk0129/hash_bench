@@ -106,6 +106,7 @@ class ExtendibleHash : public Hash<Key_t> {
 	char* Get(Key_t&);
 	double Utilization(void);
 	size_t Capacity(void);
+	void FindAnyway(Key_t& key) { }
 	
 };
 
@@ -134,7 +135,11 @@ bool Segment<Key_t>::Insert4split(Key_t& key, Value_t value, size_t loc) {
 template <typename Key_t>
 Segment<Key_t>** Segment<Key_t>::Split(void){
     Segment<Key_t>** split = new Segment<Key_t>*[2];
+#ifdef INPLACE
     split[0] = this;
+#else
+    split[0] = new Segment<Key_t>(local_depth+1);
+#endif
     split[1] = new Segment<Key_t>(local_depth+1);
 
     auto pattern = ((size_t)1 << (sizeof(size_t)*8 - local_depth - 1));
@@ -161,6 +166,25 @@ Segment<Key_t>** Segment<Key_t>::Split(void){
 #endif
 	    }
 	}
+#ifndef INPLACE
+	else{
+	    if(!split[0]->Insert4split(_[i].key, _[i].value, (f_hash & kMask)*kNumPairPerCacheLine)){
+#ifdef S_HASH
+		size_t s_hash;
+		if constexpr(sizeof(Key_t) > 8)
+		    s_hash = hash_funcs[2](_[i].key, sizeof(Key_t), s_seed);
+		else
+		    s_hash = hash_funcs[2](&_[i].key, sizeof(Key_t), s_seed);
+		if(!split[0]->Insert4split(_[i].key, _[i].value, (s_hash & kMask)*kNumPairPerCacheLine)){
+		    cerr << "[" << __func__ << "]: something wrong -- need to adjust probing distance" << endl;
+		}
+#else
+		cerr << "[" << __func__ << "]: something wrong -- need to adjust probing distance" << endl;
+#endif
+	    }
+	}
+#endif
+
     }
 
     return split;
@@ -285,8 +309,10 @@ DIR_RETRY:
 	    }
 	}
 	dir = _dir;
+#ifdef INPLACE
 	s[0]->local_depth++;
 	s[0]->mutex.unlock();
+#endif
     }
     else{ // normal segment split
 	while(!dir->lock()){
@@ -297,14 +323,22 @@ DIR_RETRY:
 	if(dir->depth == target_local_depth + 1){
 	    if(x%2 == 0){
 		dir->_[x+1] = s[1];
+#ifndef INPLACE
+		dir->_[x] = s[0];
+#endif
 	    }
 	    else{
 		dir->_[x] = s[1];
+#ifndef INPLACE
+		dir->_[x-1] = s[0];
+#endif
 	    }	    
 	    dir->unlock();
+#ifdef INPLACE
 	    s[0]->local_depth++;
 	    /* release target segment exclusive lock */
 	    s[0]->mutex.unlock();
+#endif
 	}
 	else{
 	    int stride = pow(2, dir->depth - target_local_depth);
@@ -312,10 +346,17 @@ DIR_RETRY:
 	    for(int i=0; i<stride/2; ++i){
 		dir->_[loc+stride/2+i] = s[1];
 	    }
+#ifndef INPLACE
+	    for(int i=0; i<stride/2; ++i){
+		dir->_[loc+i] = s[0];
+	    }
+#endif
 	    dir->unlock();
+#ifdef INPLACE
 	    s[0]->local_depth++;
 	    /* release target segment exclusive lock */
 	    s[0]->mutex.unlock();
+#endif
 	}
     }
 #ifdef BREAKDOWN
