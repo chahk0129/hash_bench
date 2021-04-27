@@ -19,4 +19,5 @@ $ ./bin/$(key_type)_ycsbbench $(workload_type) $(index_type) $(num_threads)
 
 ## Contributor
 * Hokeun Cha (hcha@cs.wisc.edu)
+
 Hash-bench has been developed for CS764-Spring2021 project submission. 
